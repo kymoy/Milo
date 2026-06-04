@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+
+# Environment variables — never commit this
+.env
+.env.*
+
+# Virtual environments
+venv/
+.venv/
+
+# OS clutter
+.DS_Store
+Thumbs.db
+
+# Editor folders
+.vscode/
+.idea/
