@@ -8,7 +8,7 @@ const SERIF  = { fontFamily: "'Cormorant Garamond', Georgia, serif", fontWeight:
 const MONO_U = { fontFamily: "'Inter', system-ui, sans-serif", fontWeight: 200, letterSpacing: '4px', textTransform: 'uppercase' }
 
 const DARK  = { bgGrad: 'radial-gradient(ellipse at 60% 40%, #3d1a08 0%, #0a0a0a 65%)', text: '#fff', muted: '#bbb', border: 'rgba(255,107,43,0.35)', inputBg: 'rgba(255,255,255,0.07)', accent: '#ff6b2b', btnGrad: 'linear-gradient(135deg, #ff6b2b, #cc3300)' }
-const LIGHT = { bgGrad: 'radial-gradient(ellipse at 60% 40%, #fde8d8 0%, #fff7f2 65%)', text: '#1a0800', muted: '#885533', border: 'rgba(204,51,0,0.3)', inputBg: 'rgba(204,51,0,0.06)', accent: '#cc3300', btnGrad: 'linear-gradient(135deg, #ff6b2b, #cc3300)' }
+const LIGHT = { bgGrad: 'radial-gradient(ellipse at 60% 40%, #ff9966 0%, #fff8f4 70%)', text: '#1a0800', muted: '#885533', border: 'rgba(204,51,0,0.3)', inputBg: 'rgba(255,255,255,0.6)', accent: '#cc3300', btnGrad: 'linear-gradient(135deg, #ff6b2b, #cc3300)' }
 
 export default function Login() {
   const { login } = useAuth()

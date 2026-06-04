@@ -13,12 +13,8 @@ import StiffLogin    from './themes/stiff/Login'
 import StiffChat     from './themes/stiff/Chat'
 import StoktLogin    from './themes/stokt/Login'
 import StoktChat     from './themes/stokt/Chat'
-import CombLogin     from './themes/combined/Login'
-import CombChat      from './themes/combined/Chat'
 import LavLogin      from './themes/lavender/Login'
 import LavChat       from './themes/lavender/Chat'
-import CustLogin     from './themes/custom/Login'
-import CustChat      from './themes/custom/Chat'
 
 function themed(LoginComp, ChatComp, prefix) {
   return [
@@ -43,9 +39,7 @@ export default function App() {
           {themed(CrystalsLogin, CrystalsChat, 'crystals')}
           {themed(StiffLogin,    StiffChat,    'stiff')}
           {themed(StoktLogin,    StoktChat,    'stokt')}
-          {themed(CombLogin,     CombChat,     'combined')}
           {themed(LavLogin,      LavChat,      'lavender')}
-          {themed(CustLogin,     CustChat,     'custom')}
 
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
