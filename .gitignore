@@ -21,3 +21,10 @@ Thumbs.db
 # Editor folders
 .vscode/
 .idea/
+
+# Local vector database — never commit, rebuilt by running ingest
+chroma_db/
+
+# Node dependencies
+frontend-new/node_modules/
+frontend-new/.vite/

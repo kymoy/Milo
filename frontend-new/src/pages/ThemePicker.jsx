@@ -1,5 +1,4 @@
 import { useNavigate } from 'react-router-dom'
-
 const PRESETS = [
   { id: 'crystals', label: 'Crystals', bg: '#000000', dot: '#ffffff' },
   { id: 'stiff',    label: 'Stiff',    bg: '#12121e', dot: '#cc2200' },

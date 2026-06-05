@@ -1,6 +1,7 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, field_validator
+from rag.retrieve import retrieve, build_context
 
 app = FastAPI(title="Milo")
 
@@ -62,5 +63,18 @@ def login(body: LoginRequest):
 
 @app.post("/chat")
 def chat(body: ChatMessage):
-    # Placeholder — agents will be wired in here later
-    return {"reply": f"[Milo] Got your message: '{body.message}' — agents coming soon."}
+    chunks = retrieve(body.message, n_results=3)
+
+    if not chunks:
+        return {"reply": "I don't have any information loaded yet. Ask an admin to ingest a library first."}
+
+    context = build_context(chunks)
+
+    # Phase 5 will pass this context to Ollama for a real generated answer.
+    # For now, return the most relevant retrieved chunk directly.
+    best = chunks[0]["text"]
+    return {
+        "reply": best,
+        "sources": [c["source"] for c in chunks],
+        "context_preview": context[:300],
+    }
