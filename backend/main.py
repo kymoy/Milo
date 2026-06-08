@@ -1,3 +1,4 @@
+import requests
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, field_validator
@@ -12,7 +13,9 @@ app.add_middleware(
     allow_headers=["Content-Type"],
 )
 
-# Placeholder credentials — will be replaced with a real database in Phase 4
+OLLAMA_URL = "http://localhost:11434/api/generate"
+OLLAMA_MODEL = "phi3:mini"
+
 USERS = {
     "admin": {"password": "admin123", "role": "admin"},
     "user":  {"password": "user123",  "role": "user"},
@@ -48,6 +51,23 @@ class ChatMessage(BaseModel):
         return v
 
 
+def ask_ollama(prompt: str) -> str:
+    try:
+        resp = requests.post(
+            OLLAMA_URL,
+            json={"model": OLLAMA_MODEL, "prompt": prompt, "stream": False},
+            timeout=180,
+        )
+        resp.raise_for_status()
+        return resp.json().get("response", "").strip()
+    except requests.exceptions.ConnectionError:
+        return "CONNECTION_ERROR"
+    except requests.exceptions.Timeout:
+        return "TIMEOUT_ERROR"
+    except Exception:
+        return "CONNECTION_ERROR"
+
+
 @app.get("/")
 def status():
     return {"status": "running", "app": "Milo"}
@@ -70,11 +90,20 @@ def chat(body: ChatMessage):
 
     context = build_context(chunks)
 
-    # Phase 5 will pass this context to Ollama for a real generated answer.
-    # For now, return the most relevant retrieved chunk directly.
-    best = chunks[0]["text"]
-    return {
-        "reply": best,
-        "sources": [c["source"] for c in chunks],
-        "context_preview": context[:300],
-    }
+    prompt = f"""You are Milo, a knowledgeable and concise assistant. Use only the context below to answer the question. If the answer is not in the context, say you don't have that information.
+
+Context:
+{context}
+
+Question: {body.message}
+
+Answer:"""
+
+    answer = ask_ollama(prompt)
+
+    if answer == "CONNECTION_ERROR":
+        return {"reply": "Ollama is not reachable. Make sure the Ollama app is open and running in your system tray."}
+    if answer == "TIMEOUT_ERROR":
+        return {"reply": "Milo is still thinking — the model took too long this time. Try asking again, it should be faster now that it is warmed up."}
+
+    return {"reply": answer}
