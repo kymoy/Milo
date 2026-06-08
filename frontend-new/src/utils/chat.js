@@ -1,7 +1,7 @@
 const BACKEND = 'http://localhost:8000'
-const TIMEOUT_MS = 120000 // 2 minutes — Ollama on CPU can be slow
+const TIMEOUT_MS = 120000
 
-export async function sendMessage(message) {
+export async function sendMessage(message, useLibrary = true) {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
 
@@ -9,7 +9,7 @@ export async function sendMessage(message) {
     const res = await fetch(`${BACKEND}/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message }),
+      body: JSON.stringify({ message, use_library: useLibrary }),
       signal: controller.signal,
     })
     clearTimeout(timer)

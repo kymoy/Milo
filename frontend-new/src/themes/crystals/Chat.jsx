@@ -16,6 +16,7 @@ export default function Chat() {
   const navigate = useNavigate()
   const [mode, setMode] = useState('dark')
   const [showSettings, setShowSettings] = useState(false)
+  const [useLibrary, setUseLibrary] = useState(() => localStorage.getItem('milo_use_library') !== 'false')
   const c = mode === 'dark' ? DARK : LIGHT
   const [messages, setMessages] = useState([{ role: 'bot', text: `${user?.username} — ready.` }])
   const [input, setInput] = useState('')
@@ -25,11 +26,15 @@ export default function Chat() {
 
   function handleLogout() { logout(); navigate('/crystals/login') }
 
+  function toggleLibrary() {
+    setUseLibrary(v => { const next = !v; localStorage.setItem('milo_use_library', String(next)); return next })
+  }
+
   async function send() {
     const text = input.trim()
     if (!text || loading || text.length > MAX) return
     setMessages(p => [...p, { role: 'user', text }]); setInput(''); setLoading(true)
-    const reply = await sendMessage(text)
+    const reply = await sendMessage(text, useLibrary)
     setMessages(p => [...p, { role: 'bot', text: reply }])
     setLoading(false)
   }
@@ -59,7 +64,7 @@ export default function Chat() {
         </div>
 
         <div style={{ display: 'flex', borderTop: `1px solid ${c.border}` }}>
-          <input value={input} maxLength={MAX} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && send()} placeholder="Type a message..."
+          <input value={input} maxLength={MAX} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && send()} placeholder="Type a message..." autoComplete="off"
             style={{ flex: 1, background: 'transparent', border: 'none', padding: '20px 32px', color: c.text, fontSize: '14px', outline: 'none', fontFamily: 'system-ui' }} />
           <button onClick={send} disabled={loading || !input.trim()}
             style={{ ...MONO_U, background: 'none', border: 'none', borderLeft: `1px solid ${c.border}`, padding: '20px 28px', color: loading || !input.trim() ? c.muted : c.text, fontSize: '10px', letterSpacing: '3px', cursor: 'pointer' }}>
@@ -68,7 +73,7 @@ export default function Chat() {
         </div>
       </div>
 
-      {showSettings && <SettingsPanel colors={c} user={user} onClose={() => setShowSettings(false)} onLogout={handleLogout} />}
+      {showSettings && <SettingsPanel colors={c} user={user} onClose={() => setShowSettings(false)} onLogout={handleLogout} useLibrary={useLibrary} onToggleLibrary={toggleLibrary} />}
     </div>
   )
 }

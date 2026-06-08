@@ -13,10 +13,14 @@ def _get_collection():
     )
 
 
+RELEVANCE_THRESHOLD = 0.30  # cosine distance; lower = more similar (0=identical, 1=unrelated)
+
+
 def retrieve(query: str, n_results: int = 3) -> list[dict]:
     """
     Search ChromaDB for the most relevant chunks for a given query.
     Returns a list of dicts with 'text' and 'source' keys.
+    Only returns chunks whose cosine distance is below RELEVANCE_THRESHOLD.
     """
     collection = _get_collection()
 
@@ -24,12 +28,18 @@ def retrieve(query: str, n_results: int = 3) -> list[dict]:
         return []
 
     n_results = min(n_results, collection.count())
-    results = collection.query(query_texts=[query], n_results=n_results)
+    results = collection.query(
+        query_texts=[query],
+        n_results=n_results,
+        include=["documents", "metadatas", "distances"],
+    )
 
     chunks = []
     for i, doc in enumerate(results["documents"][0]):
-        source = results["metadatas"][0][i].get("source", "unknown")
-        chunks.append({"text": doc, "source": source})
+        distance = results["distances"][0][i]
+        if distance < RELEVANCE_THRESHOLD:
+            source = results["metadatas"][0][i].get("source", "unknown")
+            chunks.append({"text": doc, "source": source})
 
     return chunks
 

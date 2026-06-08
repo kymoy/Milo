@@ -14,7 +14,7 @@ app.add_middleware(
 )
 
 OLLAMA_URL = "http://localhost:11434/api/generate"
-OLLAMA_MODEL = "phi3:mini"
+OLLAMA_MODEL = "llama3.2:3b"
 
 USERS = {
     "admin": {"password": "admin123", "role": "admin"},
@@ -39,6 +39,7 @@ class LoginRequest(BaseModel):
 
 class ChatMessage(BaseModel):
     message: str
+    use_library: bool = True
 
     @field_validator("message")
     @classmethod
@@ -83,17 +84,27 @@ def login(body: LoginRequest):
 
 @app.post("/chat")
 def chat(body: ChatMessage):
-    chunks = retrieve(body.message, n_results=3)
-
-    if not chunks:
-        return {"reply": "I don't have any information loaded yet. Ask an admin to ingest a library first."}
-
-    context = build_context(chunks)
-
-    prompt = f"""You are Milo, a knowledgeable and concise assistant. Use only the context below to answer the question. If the answer is not in the context, say you don't have that information.
+    if body.use_library:
+        chunks = retrieve(body.message, n_results=3)
+        if chunks:
+            context = build_context(chunks)
+            prompt = f"""You are Milo, a knowledgeable and concise assistant. Use only the context below to answer the question. If the answer is not in the context, say you don't have that information.
 
 Context:
 {context}
+
+Question: {body.message}
+
+Answer:"""
+        else:
+            # No relevant library content — fall back to general knowledge
+            prompt = f"""You are Milo, a knowledgeable and concise assistant. Answer the following question using your general knowledge.
+
+Question: {body.message}
+
+Answer:"""
+    else:
+        prompt = f"""You are Milo, a knowledgeable and concise assistant. Answer the following question using your general knowledge.
 
 Question: {body.message}
 
@@ -102,8 +113,8 @@ Answer:"""
     answer = ask_ollama(prompt)
 
     if answer == "CONNECTION_ERROR":
-        return {"reply": "Ollama is not reachable. Make sure the Ollama app is open and running in your system tray."}
+        return {"reply": "Ollama is not reachable. Open a terminal and run: ollama serve"}
     if answer == "TIMEOUT_ERROR":
-        return {"reply": "Milo is still thinking — the model took too long this time. Try asking again, it should be faster now that it is warmed up."}
+        return {"reply": "Milo is still thinking — the model took too long. Try again in a moment."}
 
     return {"reply": answer}

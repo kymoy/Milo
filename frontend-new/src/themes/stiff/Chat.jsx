@@ -17,6 +17,7 @@ export default function Chat() {
   const navigate = useNavigate()
   const [mode, setMode] = useState('dark')
   const [showSettings, setShowSettings] = useState(false)
+  const [useLibrary, setUseLibrary] = useState(() => localStorage.getItem('milo_use_library') !== 'false')
   const c = mode === 'dark' ? DARK : LIGHT
   const [messages, setMessages] = useState([{ role: 'bot', text: `What's good, ${user?.username}? I'm Milo.` }])
   const [input, setInput] = useState('')
@@ -26,11 +27,15 @@ export default function Chat() {
 
   function handleLogout() { logout(); navigate('/stiff/login') }
 
+  function toggleLibrary() {
+    setUseLibrary(v => { const next = !v; localStorage.setItem('milo_use_library', String(next)); return next })
+  }
+
   async function send() {
     const text = input.trim()
     if (!text || loading || text.length > MAX) return
     setMessages(p => [...p, { role: 'user', text }]); setInput(''); setLoading(true)
-    const reply = await sendMessage(text)
+    const reply = await sendMessage(text, useLibrary)
     setMessages(p => [...p, { role: 'bot', text: reply }])
     setLoading(false)
   }
@@ -60,7 +65,7 @@ export default function Chat() {
         </div>
 
         <div style={{ display: 'flex', gap: '12px', padding: '16px 24px', borderTop: `2px solid ${c.border}` }}>
-          <input value={input} maxLength={MAX} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && send()} placeholder="Say something..."
+          <input value={input} maxLength={MAX} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && send()} placeholder="Say something..." autoComplete="off"
             style={{ flex: 1, background: c.input, border: `2px solid ${c.border}`, borderRadius: '4px', padding: '13px 16px', color: c.text, fontSize: '15px', outline: 'none', fontFamily: 'system-ui' }} />
           <button onClick={send} disabled={loading || !input.trim()}
             style={{ background: loading || !input.trim() ? c.input : c.accent, border: `2px solid ${loading || !input.trim() ? c.border : c.accent}`, borderRadius: '4px', padding: '12px 24px', color: loading || !input.trim() ? c.muted : '#fff', fontSize: '15px', ...SERIF, cursor: 'pointer' }}>
@@ -69,7 +74,7 @@ export default function Chat() {
         </div>
       </div>
 
-      {showSettings && <SettingsPanel colors={c} user={user} onClose={() => setShowSettings(false)} onLogout={handleLogout} />}
+      {showSettings && <SettingsPanel colors={c} user={user} onClose={() => setShowSettings(false)} onLogout={handleLogout} useLibrary={useLibrary} onToggleLibrary={toggleLibrary} />}
     </div>
   )
 }
