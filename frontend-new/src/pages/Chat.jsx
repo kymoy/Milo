@@ -29,6 +29,12 @@ export default function Chat() {
     if (!text || loading) return
     if (text.length > MAX_LENGTH) return
 
+    // Capture history before state update; skip the initial greeting (index 0)
+    const history = messages.slice(1).map(msg => ({
+      role: msg.role === 'user' ? 'user' : 'assistant',
+      text: msg.text,
+    }))
+
     setMessages(prev => [...prev, { role: 'user', text }])
     setInput('')
     setLoading(true)
@@ -37,7 +43,7 @@ export default function Chat() {
       const res = await fetch(`${BACKEND}/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: text }),
+        body: JSON.stringify({ message: text, history }),
       })
       const data = await res.json()
       setMessages(prev => [...prev, { role: 'bot', text: data.reply }])
