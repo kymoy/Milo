@@ -5,12 +5,15 @@ DB_PATH = Path(__file__).parent.parent / "chroma_db"
 COLLECTION = "milo_library"
 
 
+_client = chromadb.PersistentClient(path=str(DB_PATH))
+_collection = _client.get_or_create_collection(
+    name=COLLECTION,
+    metadata={"hnsw:space": "cosine"},
+)
+
+
 def _get_collection():
-    client = chromadb.PersistentClient(path=str(DB_PATH))
-    return client.get_or_create_collection(
-        name=COLLECTION,
-        metadata={"hnsw:space": "cosine"},
-    )
+    return _collection
 
 
 RELEVANCE_THRESHOLD = 0.30  # cosine distance; lower = more similar (0=identical, 1=unrelated)
