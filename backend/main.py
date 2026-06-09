@@ -1,10 +1,14 @@
 import re
+import subprocess
+import time
+import psutil
 import requests
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, field_validator
 from typing import Literal
 from rag.retrieve import retrieve, build_context
+from rag.ingest import ingest_text, list_sources
 
 app = FastAPI(title="Milo")
 
@@ -109,7 +113,22 @@ class ChatMessage(BaseModel):
         return v
 
 
-def ask_ollama(messages: list[dict]) -> str:
+def get_gpu_percent() -> float | None:
+    try:
+        result = subprocess.run(
+            ["nvidia-smi", "--query-gpu=utilization.gpu", "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=2,
+        )
+        if result.returncode == 0:
+            return float(result.stdout.strip())
+    except Exception:
+        pass
+    return None
+
+
+def ask_ollama(messages: list[dict]) -> dict:
+    psutil.cpu_percent(interval=None)  # reset cpu counter before request
+    start = time.time()
     try:
         resp = requests.post(
             OLLAMA_CHAT_URL,
@@ -117,13 +136,56 @@ def ask_ollama(messages: list[dict]) -> str:
             timeout=180,
         )
         resp.raise_for_status()
-        return resp.json().get("message", {}).get("content", "").strip()
+        data = resp.json()
+        elapsed_ms = round((time.time() - start) * 1000)
+        cpu = round(psutil.cpu_percent(interval=None), 1)
+
+        eval_count = data.get("eval_count", 0)
+        eval_duration_ns = data.get("eval_duration", 0)
+        tokens_per_sec = round(eval_count / (eval_duration_ns / 1e9), 1) if eval_duration_ns > 0 else None
+
+        return {
+            "text": data.get("message", {}).get("content", "").strip(),
+            "metrics": {
+                "response_ms": elapsed_ms,
+                "cpu_percent": cpu,
+                "tokens_per_sec": tokens_per_sec,
+                "gpu_percent": get_gpu_percent(),
+            },
+        }
     except requests.exceptions.ConnectionError:
-        return "CONNECTION_ERROR"
+        return {"text": "CONNECTION_ERROR", "metrics": None}
     except requests.exceptions.Timeout:
-        return "TIMEOUT_ERROR"
+        return {"text": "TIMEOUT_ERROR", "metrics": None}
     except Exception:
-        return "CONNECTION_ERROR"
+        return {"text": "CONNECTION_ERROR", "metrics": None}
+
+
+class CreateDocRequest(BaseModel):
+    source_name: str
+    content: str
+
+    @field_validator("source_name")
+    @classmethod
+    def validate_source_name(cls, v):
+        v = v.strip()
+        if not v:
+            raise ValueError("Source name cannot be empty")
+        if len(v) > 100:
+            raise ValueError("Source name too long (max 100 characters)")
+        if not re.match(r'^[\w\-]+$', v):
+            raise ValueError("Source name can only contain letters, numbers, hyphens, and underscores")
+        return v
+
+    @field_validator("content")
+    @classmethod
+    def validate_content(cls, v):
+        v = v.strip()
+        if not v:
+            raise ValueError("Content cannot be empty")
+        if len(v) > 500_000:
+            raise ValueError("Content too large (max 500KB)")
+        return v
 
 
 @app.get("/")
@@ -137,6 +199,31 @@ def login(body: LoginRequest):
     if not user or user["password"] != body.password:
         raise HTTPException(status_code=401, detail="Invalid credentials.")
     return {"role": user["role"]}
+
+
+@app.get("/admin/sources")
+def admin_sources():
+    return {"sources": list_sources()}
+
+
+@app.post("/admin/upload")
+async def admin_upload(file: UploadFile = File(...)):
+    if not file.filename.endswith((".md", ".txt")):
+        raise HTTPException(status_code=400, detail="Only .md and .txt files are supported.")
+    content = await file.read()
+    try:
+        text = content.decode("utf-8")
+    except UnicodeDecodeError:
+        raise HTTPException(status_code=400, detail="File must be UTF-8 encoded text.")
+    source_name = re.sub(r'[^\w\-]', '_', file.filename.rsplit(".", 1)[0])
+    chunks = ingest_text(text, source_name)
+    return {"source": source_name, "chunks": chunks}
+
+
+@app.post("/admin/create")
+def admin_create(body: CreateDocRequest):
+    chunks = ingest_text(body.content, body.source_name)
+    return {"source": body.source_name, "chunks": chunks}
 
 
 @app.post("/chat")
@@ -174,14 +261,13 @@ def chat(body: ChatMessage):
 
     messages.append({"role": "user", "content": body.message})
 
-    print(f"[DEBUG] history={len(body.history)} messages, active_style={active_style!r}")
-    print(f"[DEBUG] system: {system_content[:120]}")
-
-    answer = ask_ollama(messages)
+    result = ask_ollama(messages)
+    answer = result["text"]
+    metrics = result["metrics"]
 
     if answer == "CONNECTION_ERROR":
-        return {"reply": "Ollama is not reachable. Open a terminal and run: ollama serve"}
+        return {"reply": "Ollama is not reachable. Open a terminal and run: ollama serve", "metrics": None}
     if answer == "TIMEOUT_ERROR":
-        return {"reply": "Milo is still thinking — the model took too long. Try again in a moment."}
+        return {"reply": "Milo is still thinking — the model took too long. Try again in a moment.", "metrics": None}
 
-    return {"reply": answer}
+    return {"reply": answer, "metrics": metrics}

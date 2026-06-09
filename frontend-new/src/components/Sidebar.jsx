@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useNavigate, useLocation } from 'react-router-dom'
 
 const SERIF  = { fontFamily: "'Cormorant Garamond', Georgia, serif", fontWeight: 300 }
 const MONO_U = { fontFamily: "'Inter', system-ui, sans-serif", fontWeight: 200, letterSpacing: '4px', textTransform: 'uppercase' }
@@ -13,6 +14,12 @@ const PLACEHOLDER_CHATS = [
 
 export default function Sidebar({ colors: c, user, onLogout, onSettings, onNewChat }) {
   const [activeChat, setActiveChat] = useState(0)
+  const navigate = useNavigate()
+  const { pathname } = useLocation()
+  const themePrefix = pathname.split('/')[1]
+  const isOnAdmin = pathname.endsWith('/admin')
+  const adminTogglePath  = isOnAdmin ? `/${themePrefix}/chat` : `/${themePrefix}/admin`
+  const adminToggleLabel = isOnAdmin ? '← Back to chat' : '⚙ Admin panel'
 
   return (
     <div style={{
@@ -61,6 +68,22 @@ export default function Sidebar({ colors: c, user, onLogout, onSettings, onNewCh
           ))}
         </div>
       </div>
+
+      {/* Admin link */}
+      {user?.role === 'admin' && (
+        <div style={{ padding: '8px 12px', borderTop: `1px solid ${c.border}` }}>
+          <button onClick={() => navigate(adminTogglePath)} style={{
+            width: '100%', background: 'transparent', border: `1px solid ${c.border}`,
+            borderRadius: '7px', padding: '8px 12px', color: c.muted,
+            cursor: 'pointer', ...MONO_U, fontSize: '10px', textAlign: 'left',
+            transition: 'border-color 0.15s, color 0.15s',
+          }}
+            onMouseEnter={e => { e.currentTarget.style.borderColor = c.accent; e.currentTarget.style.color = c.accent }}
+            onMouseLeave={e => { e.currentTarget.style.borderColor = c.border; e.currentTarget.style.color = c.muted }}>
+            {adminToggleLabel}
+          </button>
+        </div>
+      )}
 
       {/* Profile + settings */}
       <div style={{ padding: '14px 16px', borderTop: `1px solid ${c.border}`, display: 'flex', alignItems: 'center', gap: '10px' }}>

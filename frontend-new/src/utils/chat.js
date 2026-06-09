@@ -14,11 +14,13 @@ export async function sendMessage(message, useLibrary = true, history = []) {
     })
     clearTimeout(timer)
     const data = await res.json()
-    return data.reply ?? 'No response received.'
+    return { reply: data.reply ?? 'No response received.', metrics: data.metrics ?? null }
   } catch (err) {
     clearTimeout(timer)
-    if (err.name === 'AbortError') return 'The request timed out. The model may still be loading — try again in a moment.'
-    return 'Could not reach the backend.'
+    const msg = err.name === 'AbortError'
+      ? 'The request timed out. The model may still be loading — try again in a moment.'
+      : 'Could not reach the backend.'
+    return { reply: msg, metrics: null }
   }
 }
 

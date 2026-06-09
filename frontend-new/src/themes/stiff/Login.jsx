@@ -32,7 +32,7 @@ export default function Login() {
       const data = await res.json()
       if (!res.ok) return setError(data.detail || 'Invalid credentials.')
       login({ username: u, role: data.role })
-      navigate(`/stiff/${data.role === 'admin' ? 'admin' : 'chat'}`)
+      navigate(data.role === 'admin' ? '/stiff/admin' : '/stiff/chat')
     } catch { setError('Could not reach server.') }
     finally { setLoading(false) }
   }
@@ -66,3 +66,4 @@ export default function Login() {
     </div>
   )
 }
+

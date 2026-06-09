@@ -31,6 +31,21 @@ def _chunk_text(text: str, chunk_size: int = 400, overlap: int = 80) -> list[str
     return [c for c in chunks if len(c.strip()) > 20]
 
 
+def ingest_text(text: str, source_name: str) -> int:
+    """Chunk raw text and store in ChromaDB. Returns chunk count."""
+    chunks = _chunk_text(text)
+    if not chunks:
+        return 0
+    collection = _get_collection()
+    ids       = [f"{source_name}_{i}" for i in range(len(chunks))]
+    metadatas = [{"source": source_name, "chunk": i} for i in range(len(chunks))]
+    existing = collection.get(where={"source": source_name})
+    if existing["ids"]:
+        collection.delete(ids=existing["ids"])
+    collection.add(documents=chunks, ids=ids, metadatas=metadatas)
+    return len(chunks)
+
+
 def ingest_file(filepath: str, source_name: str | None = None) -> int:
     """Load a text file, chunk it, and store in ChromaDB. Returns chunk count."""
     text = Path(filepath).read_text(encoding="utf-8")

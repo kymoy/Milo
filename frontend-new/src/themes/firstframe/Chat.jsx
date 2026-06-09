@@ -1,31 +1,17 @@
-import { useState, useRef, useEffect } from 'react'
+import { useRef, useEffect } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import { useNavigate } from 'react-router-dom'
-
-const BACKEND = 'http://localhost:8000'
-const MAX = 2000
+import { useMiloChat } from '../../hooks/useMiloChat'
 
 export default function Chat() {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
-  const [messages, setMessages] = useState([{ role: 'bot', text: `${user?.username} — session active.` }])
-  const [input, setInput] = useState('')
-  const [loading, setLoading] = useState(false)
+
+  const greeting = `${user?.username} — session active.`
+  const { messages, input, setInput, loading, send } = useMiloChat(greeting)
+
   const bottomRef = useRef(null)
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
-
-  async function send() {
-    const text = input.trim()
-    if (!text || loading || text.length > MAX) return
-    const history = messages.slice(1).map(m => ({ role: m.role === 'user' ? 'user' : 'assistant', text: m.text }))
-    setMessages(p => [...p, { role: 'user', text }]); setInput(''); setLoading(true)
-    try {
-      const res = await fetch(`${BACKEND}/chat`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: text, history }) })
-      const data = await res.json()
-      setMessages(p => [...p, { role: 'bot', text: data.reply }])
-    } catch { setMessages(p => [...p, { role: 'bot', text: 'No connection.' }]) }
-    finally { setLoading(false) }
-  }
 
   return (
     <div style={{ background: '#080c10', minHeight: '100vh', display: 'flex', flexDirection: 'column', maxWidth: '860px', margin: '0 auto', fontFamily: "'Inter', system-ui, sans-serif" }}>
@@ -45,6 +31,11 @@ export default function Chat() {
               {m.role === 'bot' && <div style={{ fontSize: '8px', letterSpacing: '2px', color: '#6a9abb', textTransform: 'uppercase', marginBottom: '6px' }}>MILO</div>}
               <div style={{ fontSize: '13px', lineHeight: 1.7, color: m.role === 'user' ? '#c8d8e8' : '#7a9ab5', letterSpacing: '0.2px' }}>{m.text}</div>
               {m.role === 'user' && <div style={{ fontSize: '8px', color: '#5a7a9a', letterSpacing: '2px', textTransform: 'uppercase', marginTop: '6px', textAlign: 'right' }}>{user?.username}</div>}
+              {m.role === 'bot' && m.metrics && (
+                <div style={{ fontSize: '10px', color: '#4a6a8a', marginTop: '8px', fontFamily: 'monospace', letterSpacing: '0.5px' }}>
+                  {[`${(m.metrics.response_ms / 1000).toFixed(1)}s`, m.metrics.cpu_percent != null && `CPU ${m.metrics.cpu_percent}%`, m.metrics.tokens_per_sec != null && `${m.metrics.tokens_per_sec} tok/s`, m.metrics.gpu_percent != null && `GPU ${m.metrics.gpu_percent}%`].filter(Boolean).join(' · ')}
+                </div>
+              )}
             </div>
           </div>
         ))}
@@ -53,7 +44,7 @@ export default function Chat() {
       </div>
 
       <div style={{ display: 'flex', borderTop: '1px solid #0d1520' }}>
-        <input value={input} maxLength={MAX} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && send()} placeholder="Type a message..." style={{ flex: 1, background: 'transparent', border: 'none', padding: '20px 32px', color: '#c8d8e8', fontSize: '13px', outline: 'none', fontFamily: 'inherit', letterSpacing: '0.2px' }} />
+        <input value={input} maxLength={2000} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && send()} placeholder="Type a message..." style={{ flex: 1, background: 'transparent', border: 'none', padding: '20px 32px', color: '#c8d8e8', fontSize: '13px', outline: 'none', fontFamily: 'inherit', letterSpacing: '0.2px' }} />
         <button onClick={send} disabled={loading || !input.trim()} style={{ background: 'none', border: 'none', borderLeft: '1px solid #0d1520', padding: '20px 28px', color: loading || !input.trim() ? '#1a2a3a' : '#c8d8e8', fontSize: '9px', letterSpacing: '3px', textTransform: 'uppercase', cursor: 'pointer', fontFamily: 'inherit' }}>Send</button>
       </div>
     </div>

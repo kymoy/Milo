@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useNavigate, useLocation } from 'react-router-dom'
 
 const SERIF  = { fontFamily: "'Cormorant Garamond', Georgia, serif", fontWeight: 300 }
 const MONO_U = { fontFamily: "'Inter', system-ui, sans-serif", fontWeight: 200, letterSpacing: '3px', textTransform: 'uppercase' }
@@ -7,6 +8,13 @@ const ROW = (c) => ({
   display: 'flex', justifyContent: 'space-between', alignItems: 'center',
   padding: '14px 0', borderBottom: `1px solid ${c.border}`,
 })
+
+const THEMES = [
+  { label: 'Lavender', path: '/lavender/chat' },
+  { label: 'Crystals', path: '/crystals/chat' },
+  { label: 'Stiff',    path: '/stiff/chat'    },
+  { label: 'Stōkt',   path: '/stokt/chat'    },
+]
 
 function Toggle({ on, onToggle, accent, border, muted }) {
   return (
@@ -29,6 +37,10 @@ function Toggle({ on, onToggle, accent, border, muted }) {
 }
 
 export default function SettingsPanel({ colors: c, user, onClose, onLogout, useLibrary, onToggleLibrary }) {
+  const navigate = useNavigate()
+  const { pathname } = useLocation()
+  const currentTheme = THEMES.find(t => pathname.startsWith(t.path.replace('/chat', '')))?.path ?? null
+
   return (
     <>
       <div onClick={onClose} style={{
@@ -59,12 +71,34 @@ export default function SettingsPanel({ colors: c, user, onClose, onLogout, useL
             </div>
           </div>
 
+          <div style={{ ...SERIF, fontSize: '12px', color: c.muted, fontStyle: 'italic', marginBottom: '12px', letterSpacing: '1px' }}>Theme</div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '28px' }}>
+            {THEMES.map(t => {
+              const active = currentTheme === t.path
+              return (
+                <button key={t.path} onClick={() => { onClose(); navigate(t.path) }} style={{
+                  background: active ? `${c.accent}22` : 'transparent',
+                  border: `1px solid ${active ? c.accent : c.border}`,
+                  borderRadius: '8px', padding: '10px 14px',
+                  color: active ? c.accent : c.muted,
+                  cursor: 'pointer', ...SERIF, fontSize: '15px',
+                  transition: 'background 0.15s, border-color 0.15s, color 0.15s',
+                  textAlign: 'left',
+                }}
+                  onMouseEnter={e => { if (!active) { e.currentTarget.style.borderColor = c.accent; e.currentTarget.style.color = c.text } }}
+                  onMouseLeave={e => { if (!active) { e.currentTarget.style.borderColor = c.border; e.currentTarget.style.color = c.muted } }}>
+                  {t.label}
+                </button>
+              )
+            })}
+          </div>
+
           <div style={{ ...SERIF, fontSize: '12px', color: c.muted, fontStyle: 'italic', marginBottom: '12px', letterSpacing: '1px' }}>System</div>
           <div style={{ display: 'flex', flexDirection: 'column' }}>
             <div style={ROW(c)}>
               <div>
                 <div style={{ ...SERIF, fontSize: '16px', color: c.text }}>AI Model</div>
-                <div style={{ ...SERIF, fontSize: '13px', color: c.muted, fontStyle: 'italic' }}>Ollama — llama3.2:3b</div>
+                <div style={{ ...SERIF, fontSize: '13px', color: c.muted, fontStyle: 'italic' }}>Ollama — llama3.1:8b</div>
               </div>
               <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#4ade80' }} />
             </div>
