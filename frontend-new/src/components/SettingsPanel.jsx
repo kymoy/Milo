@@ -14,6 +14,7 @@ const THEMES = [
   { label: 'Crystals', path: '/crystals/chat' },
   { label: 'Stiff',    path: '/stiff/chat'    },
   { label: 'Stōkt',   path: '/stokt/chat'    },
+  { label: 'Azure',   path: '/azure/chat'    },
 ]
 
 function Toggle({ on, onToggle, accent, border, muted }) {

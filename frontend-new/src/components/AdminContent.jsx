@@ -84,14 +84,14 @@ export default function AdminContent({ c, admin }) {
             onChange={e => handleSwitchModel(e.target.value)}
             disabled={switchingModel || models.length === 0}
             style={{
-              background: c.input, border: `1px solid ${c.border}`, borderRadius: '8px',
+              background: c.sidebar, border: `1px solid ${c.border}`, borderRadius: '8px',
               padding: '10px 14px', color: c.text, fontSize: '15px', outline: 'none',
               cursor: 'pointer', ...SERIF, minWidth: '220px',
             }}
           >
-            {models.length === 0 && <option value="">No models found</option>}
+            {models.length === 0 && <option value="" style={{ background: c.sidebar, color: c.text }}>No models found</option>}
             {models.map(m => (
-              <option key={m} value={m}>{m}</option>
+              <option key={m} value={m} style={{ background: c.sidebar, color: c.text }}>{m}</option>
             ))}
           </select>
           {modelStatus && (

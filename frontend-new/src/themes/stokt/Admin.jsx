@@ -15,7 +15,7 @@ const LIGHT = { bg: 'radial-gradient(ellipse at 70% 10%, #ff9966 0%, #fff8f4 70%
 export default function Admin() {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
-  const [mode, setMode] = useState('dark')
+  const [mode, setMode] = useState(() => localStorage.getItem('milo_mode') ?? 'dark')
   const [showSettings, setShowSettings] = useState(false)
   const [useLibrary, setUseLibrary] = useState(() => localStorage.getItem('milo_use_library') !== 'false')
   const c = mode === 'dark' ? DARK : LIGHT
@@ -37,7 +37,7 @@ export default function Admin() {
             <span style={{ color: c.border }}>|</span>
             <span style={{ ...SERIF, fontSize: '18px', color: c.text }}>Admin</span>
           </div>
-          <button onClick={() => setMode(m => m === 'dark' ? 'light' : 'dark')}
+          <button onClick={() => setMode(m => { const next = m === 'dark' ? 'light' : 'dark'; localStorage.setItem('milo_mode', next); return next })}
             style={{ ...MONO_U, background: 'none', border: `1px solid ${c.border}`, borderRadius: '4px', padding: '6px 14px', color: c.muted, fontSize: '11px', cursor: 'pointer' }}>
             {mode === 'dark' ? 'Light' : 'Dark'}
           </button>
@@ -52,3 +52,4 @@ export default function Admin() {
     </div>
   )
 }
+

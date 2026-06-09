@@ -9,8 +9,8 @@ import { useAdminPanel } from '../../hooks/useAdminPanel'
 const SERIF  = { fontFamily: "'Cormorant Garamond', Georgia, serif", fontWeight: 300 }
 const MONO_U = { fontFamily: "'Inter', system-ui, sans-serif", fontWeight: 200, letterSpacing: '4px', textTransform: 'uppercase' }
 
-const DARK  = { bg: 'linear-gradient(135deg, #1a1228 0%, #0f0a1e 100%)', sidebar: '#110c1c', border: 'rgba(196,181,253,0.15)', text: '#ede9fe', muted: '#b8a8e0', accent: '#c4b5fd', input: 'rgba(196,181,253,0.06)', botBubble: 'rgba(196,181,253,0.07)', userBubble: 'linear-gradient(135deg,#c4b5fd,#7c3aed)', botText: '#c4b5fd' }
-const LIGHT = { bg: 'linear-gradient(135deg, #f0ecff 0%, #e8e0ff 100%)', sidebar: '#e0d8f8', border: 'rgba(124,58,237,0.2)',  text: '#1a0a40', muted: '#7755bb', accent: '#6d28d9', input: 'rgba(124,58,237,0.05)', botBubble: 'rgba(124,58,237,0.06)', userBubble: 'linear-gradient(135deg,#a78bfa,#6d28d9)', botText: '#1a0a40' }
+const DARK  = { bg: 'linear-gradient(135deg, #070d1a 0%, #0c1829 100%)', sidebar: '#080f1e', border: 'rgba(59,130,246,0.2)', text: '#e0eeff', muted: '#7099cc', accent: '#60a5fa', input: 'rgba(59,130,246,0.06)', userBubble: 'linear-gradient(135deg,#60a5fa,#1d4ed8)', botBubble: 'rgba(59,130,246,0.08)', botText: '#93c5fd' }
+const LIGHT = { bg: 'linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)', sidebar: '#dbeafe',   border: 'rgba(59,130,246,0.25)', text: '#1e3a5f', muted: '#3b6cb0', accent: '#1d4ed8', input: 'rgba(59,130,246,0.05)', userBubble: 'linear-gradient(135deg,#60a5fa,#1d4ed8)', botBubble: 'rgba(59,130,246,0.07)', botText: '#1e3a5f' }
 
 export default function Admin() {
   const { user, logout } = useAuth()
@@ -21,14 +21,14 @@ export default function Admin() {
   const c = mode === 'dark' ? DARK : LIGHT
   const admin = useAdminPanel()
 
-  function handleLogout() { logout(); navigate('/lavender/login') }
+  function handleLogout() { logout(); navigate('/azure/login') }
   function toggleLibrary() {
     setUseLibrary(v => { const next = !v; localStorage.setItem('milo_use_library', String(next)); return next })
   }
 
   return (
     <div style={{ display: 'flex', height: '100vh', background: c.bg }}>
-      <Sidebar colors={c} user={user} onLogout={handleLogout} onSettings={() => setShowSettings(true)} onNewChat={() => navigate('/lavender/chat')} />
+      <Sidebar colors={c} user={user} onLogout={handleLogout} onSettings={() => setShowSettings(true)} onNewChat={() => navigate('/azure/chat')} />
 
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
         <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 24px', borderBottom: `1px solid ${c.border}` }}>

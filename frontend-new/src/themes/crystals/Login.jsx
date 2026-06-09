@@ -13,7 +13,7 @@ const LIGHT = { bg: '#fff', text: '#000', muted: '#666', border: '#bbb', btn: '#
 export default function Login() {
   const { login } = useAuth()
   const navigate = useNavigate()
-  const [mode, setMode] = useState('dark')
+  const [mode, setMode] = useState(() => localStorage.getItem('milo_mode') ?? 'dark')
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
@@ -43,7 +43,7 @@ export default function Login() {
 
   return (
     <div style={{ background: c.bg, minHeight: '100vh', display: 'flex', transition: 'background 0.3s' }}>
-      <button onClick={() => setMode(m => m === 'dark' ? 'light' : 'dark')}
+      <button onClick={() => setMode(m => { const next = m === 'dark' ? 'light' : 'dark'; localStorage.setItem('milo_mode', next); return next })}
         style={{ position: 'fixed', top: '24px', right: '28px', background: 'none', border: `1px solid ${c.border}`, borderRadius: '4px', padding: '8px 18px', color: c.muted, fontSize: '13px', ...MONO_U, letterSpacing: '3px', cursor: 'pointer' }}>
         {mode === 'dark' ? 'Light' : 'Dark'}
       </button>
@@ -73,4 +73,5 @@ export default function Login() {
     </div>
   )
 }
+
 

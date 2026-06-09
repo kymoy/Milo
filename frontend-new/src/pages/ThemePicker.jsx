@@ -4,6 +4,7 @@ const PRESETS = [
   { id: 'stiff',    label: 'Stiff',    bg: '#12121e', dot: '#cc2200' },
   { id: 'stokt',    label: 'Stōkt',    bg: '#0a0a0a', dot: '#ff6b2b' },
   { id: 'lavender', label: 'Lavender', bg: '#1a1228', dot: '#c4b5fd' },
+  { id: 'azure',    label: 'Azure',    bg: '#070d1a', dot: '#60a5fa' },
 ]
 
 const SERIF  = { fontFamily: "'Cormorant Garamond', Georgia, serif", fontWeight: 300 }

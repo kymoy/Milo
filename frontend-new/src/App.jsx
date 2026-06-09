@@ -19,6 +19,9 @@ import StoktAdmin    from './themes/stokt/Admin'
 import LavLogin      from './themes/lavender/Login'
 import LavChat       from './themes/lavender/Chat'
 import LavAdmin      from './themes/lavender/Admin'
+import AzureLogin    from './themes/azure/Login'
+import AzureChat     from './themes/azure/Chat'
+import AzureAdmin    from './themes/azure/Admin'
 
 function themed(LoginComp, ChatComp, AdminComp, prefix) {
   const loginPath = `/${prefix}/login`
@@ -46,6 +49,7 @@ export default function App() {
           {themed(StiffLogin,    StiffChat,    StiffAdmin,    'stiff')}
           {themed(StoktLogin,    StoktChat,    StoktAdmin,    'stokt')}
           {themed(LavLogin,      LavChat,      LavAdmin,      'lavender')}
+          {themed(AzureLogin,   AzureChat,    AzureAdmin,    'azure')}
 
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

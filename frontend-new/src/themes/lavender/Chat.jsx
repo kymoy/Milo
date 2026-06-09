@@ -14,7 +14,7 @@ const LIGHT = { bg: 'linear-gradient(135deg, #f0ecff 0%, #e8e0ff 100%)', sidebar
 export default function Chat() {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
-  const [mode, setMode] = useState('dark')
+  const [mode, setMode] = useState(() => localStorage.getItem('milo_mode') ?? 'dark')
   const [showSettings, setShowSettings] = useState(false)
   const [useLibrary, setUseLibrary] = useState(() => localStorage.getItem('milo_use_library') !== 'false')
   const c = mode === 'dark' ? DARK : LIGHT
@@ -37,7 +37,7 @@ export default function Chat() {
 
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
         <header style={{ display: 'flex', justifyContent: 'flex-end', padding: '16px 24px', borderBottom: `1px solid ${c.border}` }}>
-          <button onClick={() => setMode(m => m === 'dark' ? 'light' : 'dark')}
+          <button onClick={() => setMode(m => { const next = m === 'dark' ? 'light' : 'dark'; localStorage.setItem('milo_mode', next); return next })}
             style={{ ...MONO_U, background: 'none', border: `1px solid ${c.border}`, borderRadius: '4px', padding: '6px 14px', color: c.muted, fontSize: '11px', cursor: 'pointer' }}>
             {mode === 'dark' ? 'Light' : 'Dark'}
           </button>
@@ -74,3 +74,4 @@ export default function Chat() {
     </div>
   )
 }
+

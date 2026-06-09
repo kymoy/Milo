@@ -7,8 +7,8 @@ const MAX = 64
 const SERIF  = { fontFamily: "'Cormorant Garamond', Georgia, serif", fontWeight: 300 }
 const MONO_U = { fontFamily: "'Inter', system-ui, sans-serif", fontWeight: 200, letterSpacing: '5px', textTransform: 'uppercase' }
 
-const DARK  = { bg: 'linear-gradient(135deg, #1a1228 0%, #0f0a1e 100%)', card: 'rgba(196,181,253,0.07)', border: 'rgba(196,181,253,0.25)', text: '#ede9fe', muted: '#b8a8e0', accent: '#c4b5fd', btnGrad: 'linear-gradient(135deg, #c4b5fd, #7c3aed)' }
-const LIGHT = { bg: 'linear-gradient(135deg, #f0ecff 0%, #e8e0ff 100%)', card: 'rgba(124,58,237,0.06)', border: 'rgba(124,58,237,0.25)', text: '#1a0a40', muted: '#7755bb', accent: '#6d28d9', btnGrad: 'linear-gradient(135deg, #a78bfa, #6d28d9)' }
+const DARK  = { bg: 'linear-gradient(135deg, #070d1a 0%, #0c1829 100%)', card: 'rgba(59,130,246,0.07)', border: 'rgba(59,130,246,0.25)', text: '#e0eeff', muted: '#7099cc', accent: '#60a5fa', btnGrad: 'linear-gradient(135deg, #60a5fa, #1d4ed8)' }
+const LIGHT = { bg: 'linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)', card: 'rgba(59,130,246,0.07)', border: 'rgba(59,130,246,0.3)',  text: '#1e3a5f', muted: '#3b6cb0', accent: '#1d4ed8', btnGrad: 'linear-gradient(135deg, #60a5fa, #1d4ed8)' }
 
 export default function Login() {
   const { login } = useAuth()
@@ -31,7 +31,7 @@ export default function Login() {
       const data = await res.json()
       if (!res.ok) return setError(data.detail || 'Invalid credentials.')
       login({ username: u, role: data.role })
-      navigate(data.role === 'admin' ? '/lavender/admin' : '/lavender/chat')
+      navigate(data.role === 'admin' ? '/azure/admin' : '/azure/chat')
     } catch { setError('Could not reach server.') }
     finally { setLoading(false) }
   }
@@ -64,7 +64,7 @@ export default function Login() {
                 style={{ background: 'transparent', border: `1px solid ${c.border}`, borderRadius: '10px', padding: '14px 16px', color: c.text, fontSize: '16px', outline: 'none', width: '100%', boxSizing: 'border-box', fontFamily: 'system-ui' }}
                 onFocus={e => e.target.style.borderColor = c.accent} onBlur={e => e.target.style.borderColor = c.border} />
             </div>
-            {error && <div style={{ ...SERIF, fontSize: '16px', color: c.accent }}>{error}</div>}
+            {error && <div style={{ ...SERIF, fontSize: '16px', color: '#f87171' }}>{error}</div>}
             <button type="submit" disabled={loading}
               style={{ background: c.btnGrad, border: 'none', borderRadius: '10px', padding: '15px', color: '#fff', fontSize: '18px', ...SERIF, cursor: 'pointer', opacity: loading ? 0.7 : 1 }}>
               {loading ? 'Signing in...' : 'Sign in'}
@@ -76,5 +76,4 @@ export default function Login() {
     </div>
   )
 }
-
 
