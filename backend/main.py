@@ -1,6 +1,8 @@
 import re
 import subprocess
 import time
+from pathlib import Path
+from collections import deque
 import psutil
 import requests
 from fastapi import FastAPI, HTTPException, UploadFile, File
@@ -8,22 +10,49 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, field_validator
 from typing import Literal
 from rag.retrieve import retrieve, build_context
-from rag.ingest import ingest_text, list_sources
+from rag.ingest import ingest_text, list_sources, delete_source
 
 app = FastAPI(title="Milo")
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000", "http://127.0.0.1:3000", "null"],
-    allow_methods=["POST", "GET"],
+    allow_methods=["POST", "GET", "DELETE"],
     allow_headers=["Content-Type"],
 )
 
 OLLAMA_CHAT_URL = "http://localhost:11434/api/chat"
-OLLAMA_MODEL = "llama3.1:8b"
+OLLAMA_BASE_URL  = "http://localhost:11434"
+OLLAMA_MODEL_DEFAULT = "llama3.1:8b"
 HISTORY_LIMIT = 20
 
 BASE_SYSTEM_PROMPT = "You are Milo, a helpful conversational assistant."
+
+RULES_PATH  = Path(__file__).parent / "milo_rules.md"
+MODEL_PATH  = Path(__file__).parent / "milo_model.txt"
+METRICS_HISTORY: deque = deque(maxlen=100)
+
+_active_model: str = (
+    MODEL_PATH.read_text(encoding="utf-8").strip()
+    if MODEL_PATH.exists() and MODEL_PATH.read_text(encoding="utf-8").strip()
+    else OLLAMA_MODEL_DEFAULT
+)
+
+
+def get_active_model() -> str:
+    return _active_model
+
+
+def set_active_model(name: str) -> None:
+    global _active_model
+    _active_model = name
+    MODEL_PATH.write_text(name, encoding="utf-8")
+
+
+def load_rules() -> str:
+    if RULES_PATH.exists():
+        return RULES_PATH.read_text(encoding="utf-8").strip()
+    return ""
 
 STYLE_PATTERN = re.compile(
     r"(?:talk|speak|say\s+it|respond|answer|write|reply)\s+(?:\w+\s+){0,3}(?:like|as)\s+(?:a\s+|an\s+)?(\w[\w\s]{0,30})",
@@ -113,17 +142,33 @@ class ChatMessage(BaseModel):
         return v
 
 
-def get_gpu_percent() -> float | None:
+def get_system_stats() -> dict:
+    mem = psutil.virtual_memory()
+    stats = {
+        "ram_percent": round(mem.percent, 1),
+        "ram_used_gb": round(mem.used / 1e9, 2),
+        "ram_total_gb": round(mem.total / 1e9, 2),
+        "gpu_percent": None,
+        "vram_used_mb": None,
+        "vram_total_mb": None,
+        "gpu_temp": None,
+    }
     try:
         result = subprocess.run(
-            ["nvidia-smi", "--query-gpu=utilization.gpu", "--format=csv,noheader,nounits"],
+            ["nvidia-smi",
+             "--query-gpu=utilization.gpu,memory.used,memory.total,temperature.gpu",
+             "--format=csv,noheader,nounits"],
             capture_output=True, text=True, timeout=2,
         )
         if result.returncode == 0:
-            return float(result.stdout.strip())
+            parts = [p.strip() for p in result.stdout.strip().split(",")]
+            stats["gpu_percent"]  = float(parts[0])
+            stats["vram_used_mb"] = float(parts[1])
+            stats["vram_total_mb"] = float(parts[2])
+            stats["gpu_temp"]     = float(parts[3])
     except Exception:
         pass
-    return None
+    return stats
 
 
 def ask_ollama(messages: list[dict]) -> dict:
@@ -132,7 +177,13 @@ def ask_ollama(messages: list[dict]) -> dict:
     try:
         resp = requests.post(
             OLLAMA_CHAT_URL,
-            json={"model": OLLAMA_MODEL, "messages": messages, "stream": False},
+            json={
+                "model": get_active_model(),
+                "messages": messages,
+                "stream": False,
+                "keep_alive": "10m",
+                "options": {"num_ctx": 4096},
+            },
             timeout=180,
         )
         resp.raise_for_status()
@@ -144,14 +195,19 @@ def ask_ollama(messages: list[dict]) -> dict:
         eval_duration_ns = data.get("eval_duration", 0)
         tokens_per_sec = round(eval_count / (eval_duration_ns / 1e9), 1) if eval_duration_ns > 0 else None
 
+        sys_stats = get_system_stats()
+        metrics = {
+            "ts": time.time(),
+            "response_ms": elapsed_ms,
+            "cpu_percent": cpu,
+            "tokens_per_sec": tokens_per_sec,
+            **sys_stats,
+        }
+        METRICS_HISTORY.append(metrics)
+
         return {
             "text": data.get("message", {}).get("content", "").strip(),
-            "metrics": {
-                "response_ms": elapsed_ms,
-                "cpu_percent": cpu,
-                "tokens_per_sec": tokens_per_sec,
-                "gpu_percent": get_gpu_percent(),
-            },
+            "metrics": metrics,
         }
     except requests.exceptions.ConnectionError:
         return {"text": "CONNECTION_ERROR", "metrics": None}
@@ -159,6 +215,17 @@ def ask_ollama(messages: list[dict]) -> dict:
         return {"text": "TIMEOUT_ERROR", "metrics": None}
     except Exception:
         return {"text": "CONNECTION_ERROR", "metrics": None}
+
+
+class RulesRequest(BaseModel):
+    content: str
+
+    @field_validator("content")
+    @classmethod
+    def validate_rules(cls, v):
+        if len(v) > 50_000:
+            raise ValueError("Rules too large (max 50KB)")
+        return v
 
 
 class CreateDocRequest(BaseModel):
@@ -201,6 +268,46 @@ def login(body: LoginRequest):
     return {"role": user["role"]}
 
 
+@app.get("/admin/models")
+def admin_get_models():
+    try:
+        res = requests.get(f"{OLLAMA_BASE_URL}/api/tags", timeout=5)
+        res.raise_for_status()
+        models = [m["name"] for m in res.json().get("models", [])]
+    except Exception:
+        models = []
+    return {"models": models, "active": get_active_model()}
+
+
+@app.post("/admin/model")
+def admin_set_model(body: dict):
+    name = body.get("model", "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Model name required.")
+    set_active_model(name)
+    return {"active": name}
+
+
+@app.get("/admin/diagnostics")
+def admin_diagnostics():
+    return {"current": get_system_stats(), "history": list(METRICS_HISTORY)}
+
+
+@app.get("/admin/rules")
+def get_rules():
+    return {"content": load_rules()}
+
+
+@app.post("/admin/rules")
+def save_rules(body: RulesRequest):
+    content = body.content.strip()
+    if content:
+        RULES_PATH.write_text(content, encoding="utf-8")
+    elif RULES_PATH.exists():
+        RULES_PATH.unlink()
+    return {"saved": True}
+
+
 @app.get("/admin/sources")
 def admin_sources():
     return {"sources": list_sources()}
@@ -220,6 +327,12 @@ async def admin_upload(file: UploadFile = File(...)):
     return {"source": source_name, "chunks": chunks}
 
 
+@app.delete("/admin/sources/{source_name}")
+def admin_delete_source(source_name: str):
+    count = delete_source(source_name)
+    return {"source": source_name, "deleted_chunks": count}
+
+
 @app.post("/admin/create")
 def admin_create(body: CreateDocRequest):
     chunks = ingest_text(body.content, body.source_name)
@@ -230,14 +343,17 @@ def admin_create(body: CreateDocRequest):
 def chat(body: ChatMessage):
     active_style = get_active_style(body.message, body.history)
 
+    rules = load_rules()
+    rules_note = f"\n\nRules to always follow:\n{rules}" if rules else ""
+
     if active_style:
         system_base = (
             f"You are Milo, a helpful conversational assistant. "
             f"You MUST speak entirely in {active_style} style for every sentence. "
             f"Apply {active_style} vocabulary and mannerisms even when answering factual questions."
-        )
+        ) + rules_note
     else:
-        system_base = BASE_SYSTEM_PROMPT
+        system_base = BASE_SYSTEM_PROMPT + rules_note
 
     if body.use_library:
         chunks = retrieve(body.message, n_results=3)

@@ -46,6 +46,16 @@ def ingest_text(text: str, source_name: str) -> int:
     return len(chunks)
 
 
+def delete_source(source_name: str) -> int:
+    """Delete all chunks for a source from ChromaDB. Returns number of chunks removed."""
+    collection = _get_collection()
+    existing = collection.get(where={"source": source_name})
+    if existing["ids"]:
+        collection.delete(ids=existing["ids"])
+        return len(existing["ids"])
+    return 0
+
+
 def ingest_file(filepath: str, source_name: str | None = None) -> int:
     """Load a text file, chunk it, and store in ChromaDB. Returns chunk count."""
     text = Path(filepath).read_text(encoding="utf-8")

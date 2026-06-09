@@ -1,3 +1,5 @@
+import DiagnosticsPanel from './DiagnosticsPanel'
+
 const SERIF  = { fontFamily: "'Cormorant Garamond', Georgia, serif", fontWeight: 300 }
 const MONO_U = { fontFamily: "'Inter', system-ui, sans-serif", fontWeight: 200, letterSpacing: '3px', textTransform: 'uppercase' }
 
@@ -16,11 +18,38 @@ function StatusBadge({ status }) {
   )
 }
 
+function TypeToggle({ value, onChange, c }) {
+  const options = [
+    { key: 'library',  label: 'Knowledge Library' },
+    { key: 'markdown', label: 'Markdown File'      },
+  ]
+  return (
+    <div style={{ display: 'flex', gap: '6px' }}>
+      {options.map(o => {
+        const active = value === o.key
+        return (
+          <button key={o.key} onClick={() => onChange(o.key)} style={{
+            padding: '7px 14px', borderRadius: '20px', cursor: 'pointer',
+            background: active ? c.accent : 'transparent',
+            border: `1px solid ${active ? c.accent : c.border}`,
+            color: active ? '#fff' : c.muted,
+            ...SERIF, fontSize: '14px', transition: 'all 0.15s',
+          }}>
+            {o.label}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
 export default function AdminContent({ c, admin }) {
   const {
     uploadFile, setUploadFile, uploading, uploadStatus, dragOver, setDragOver, fileInputRef, handleDrop, handleUpload,
-    sourceName, setSourceName, content, setContent, creating, createStatus, handleCreate,
-    sources, loadingSources, loadSources,
+    sourceName, setSourceName, content, setContent, docType, setDocType, creating, createStatus, handleCreate,
+    rulesContent, setRulesContent, savingRules, rulesStatus, handleSaveRules,
+    models, activeModel, switchingModel, modelStatus, handleSwitchModel,
+    sources, loadingSources, loadSources, deleteSource,
   } = admin
 
   const inputStyle = {
@@ -38,8 +67,50 @@ export default function AdminContent({ c, admin }) {
     ...SERIF, fontSize: '16px', transition: 'background 0.15s',
   })
 
+  const saveDisabled = !sourceName.trim() || !content.trim() || creating
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+
+      {/* Model selector */}
+      <div style={{ background: c.botBubble ?? c.input, border: `1px solid ${c.border}`, borderRadius: '12px', padding: '20px', display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
+        <div style={{ flex: 1, minWidth: '160px' }}>
+          <div style={{ ...MONO_U, fontSize: '11px', color: c.accent, marginBottom: '4px' }}>Active model</div>
+          <div style={{ ...SERIF, fontSize: '13px', color: c.muted }}>Changes take effect on the next message sent</div>
+        </div>
+        <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+          <select
+            value={activeModel}
+            onChange={e => handleSwitchModel(e.target.value)}
+            disabled={switchingModel || models.length === 0}
+            style={{
+              background: c.input, border: `1px solid ${c.border}`, borderRadius: '8px',
+              padding: '10px 14px', color: c.text, fontSize: '15px', outline: 'none',
+              cursor: 'pointer', ...SERIF, minWidth: '220px',
+            }}
+          >
+            {models.length === 0 && <option value="">No models found</option>}
+            {models.map(m => (
+              <option key={m} value={m}>{m}</option>
+            ))}
+          </select>
+          {modelStatus && (
+            <div style={{
+              ...SERIF, fontSize: '14px', padding: '8px 14px', borderRadius: '8px',
+              color: modelStatus.type === 'success' ? '#4ade80' : '#f87171',
+              background: modelStatus.type === 'success' ? 'rgba(74,222,128,0.08)' : 'rgba(248,113,113,0.08)',
+              border: `1px solid ${modelStatus.type === 'success' ? 'rgba(74,222,128,0.3)' : 'rgba(248,113,113,0.3)'}`,
+            }}>
+              {modelStatus.message}
+            </div>
+          )}
+          {models.length === 0 && (
+            <div style={{ ...SERIF, fontSize: '14px', color: c.muted, fontStyle: 'italic' }}>
+              Make sure Ollama is running
+            </div>
+          )}
+        </div>
+      </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
 
@@ -90,34 +161,57 @@ export default function AdminContent({ c, admin }) {
           <StatusBadge status={uploadStatus} />
         </div>
 
-        {/* Create document */}
+        {/* Create document / Rules */}
         <div style={{ background: c.botBubble ?? c.input, border: `1px solid ${c.border}`, borderRadius: '12px', padding: '24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
           <div>
-            <div style={{ ...MONO_U, fontSize: '11px', color: c.accent, marginBottom: '8px' }}>Create document</div>
-            <div style={{ ...SERIF, fontSize: '15px', color: c.text }}>Write markdown directly and save to the library</div>
+            <div style={{ ...MONO_U, fontSize: '11px', color: c.accent, marginBottom: '8px' }}>Document</div>
+            <TypeToggle value={docType} onChange={setDocType} c={c} />
           </div>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            <div>
-              <div style={{ ...SERIF, fontSize: '15px', color: c.text, marginBottom: '7px' }}>Document name</div>
-              <input value={sourceName} onChange={e => setSourceName(e.target.value)} placeholder="e.g. my-notes" style={inputStyle}
-                onFocus={e => e.target.style.borderColor = c.accent}
-                onBlur={e => e.target.style.borderColor = c.border} />
-              <div style={{ ...SERIF, fontSize: '13px', color: c.muted, marginTop: '5px', fontStyle: 'italic' }}>Letters, numbers, hyphens, underscores only</div>
-            </div>
-            <div>
-              <div style={{ ...SERIF, fontSize: '15px', color: c.text, marginBottom: '7px' }}>Content</div>
-              <textarea value={content} onChange={e => setContent(e.target.value)} placeholder="Write your markdown here..." rows={7}
+          {docType === 'library' ? (
+            <>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <div>
+                  <div style={{ ...SERIF, fontSize: '15px', color: c.text, marginBottom: '7px' }}>Document name</div>
+                  <input value={sourceName} onChange={e => setSourceName(e.target.value)} placeholder="e.g. my-notes" style={inputStyle}
+                    onFocus={e => e.target.style.borderColor = c.accent}
+                    onBlur={e => e.target.style.borderColor = c.border} />
+                  <div style={{ ...SERIF, fontSize: '13px', color: c.muted, marginTop: '5px', fontStyle: 'italic' }}>Letters, numbers, hyphens, underscores only</div>
+                </div>
+                <div>
+                  <div style={{ ...SERIF, fontSize: '15px', color: c.text, marginBottom: '7px' }}>Content</div>
+                  <textarea value={content} onChange={e => setContent(e.target.value)} placeholder="Write your markdown here..." rows={7}
+                    style={{ ...inputStyle, resize: 'vertical', lineHeight: 1.6 }}
+                    onFocus={e => e.target.style.borderColor = c.accent}
+                    onBlur={e => e.target.style.borderColor = c.border} />
+                </div>
+              </div>
+              <button onClick={handleCreate} disabled={saveDisabled} style={btnStyle(saveDisabled)}>
+                {creating ? 'Saving...' : 'Save & ingest'}
+              </button>
+              <StatusBadge status={createStatus} />
+            </>
+          ) : (
+            <>
+              <div>
+                <div style={{ ...SERIF, fontSize: '15px', color: c.text, marginBottom: '4px' }}>Milo Rules</div>
+                <div style={{ ...SERIF, fontSize: '13px', color: c.muted, fontStyle: 'italic' }}>Write rules here and Milo will follow them in every conversation.</div>
+              </div>
+              <textarea
+                value={rulesContent}
+                onChange={e => setRulesContent(e.target.value)}
+                placeholder={'Always respond concisely.\nNever break character.\nAlways greet users by name.'}
+                rows={10}
                 style={{ ...inputStyle, resize: 'vertical', lineHeight: 1.6 }}
                 onFocus={e => e.target.style.borderColor = c.accent}
-                onBlur={e => e.target.style.borderColor = c.border} />
-            </div>
-          </div>
-
-          <button onClick={handleCreate} disabled={!sourceName.trim() || !content.trim() || creating} style={btnStyle(!sourceName.trim() || !content.trim() || creating)}>
-            {creating ? 'Saving...' : 'Save & ingest'}
-          </button>
-          <StatusBadge status={createStatus} />
+                onBlur={e => e.target.style.borderColor = c.border}
+              />
+              <button onClick={handleSaveRules} disabled={savingRules} style={btnStyle(savingRules)}>
+                {savingRules ? 'Saving...' : 'Save rules'}
+              </button>
+              <StatusBadge status={rulesStatus} />
+            </>
+          )}
         </div>
       </div>
 
@@ -137,13 +231,23 @@ export default function AdminContent({ c, admin }) {
         ) : (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
             {sources.map(s => (
-              <div key={s} style={{ background: `${c.accent}15`, border: `1px solid ${c.accent}40`, borderRadius: '6px', padding: '6px 14px', ...SERIF, fontSize: '15px', color: c.accent }}>
+              <div key={s} style={{ display: 'flex', alignItems: 'center', gap: '8px', background: `${c.accent}15`, border: `1px solid ${c.accent}40`, borderRadius: '6px', padding: '6px 10px 6px 14px', ...SERIF, fontSize: '15px', color: c.accent }}>
                 {s}
+                <button
+                  onClick={() => deleteSource(s)}
+                  title={`Remove "${s}" from library`}
+                  style={{ background: 'none', border: 'none', color: c.accent, cursor: 'pointer', fontSize: '16px', lineHeight: 1, padding: '0 2px', opacity: 0.6, transition: 'opacity 0.15s' }}
+                  onMouseEnter={e => e.currentTarget.style.opacity = '1'}
+                  onMouseLeave={e => e.currentTarget.style.opacity = '0.6'}>
+                  ×
+                </button>
               </div>
             ))}
           </div>
         )}
       </div>
+
+      <DiagnosticsPanel c={c} />
 
     </div>
   )

@@ -11,8 +11,18 @@ export function useAdminPanel() {
 
   const [sourceName, setSourceName]     = useState('')
   const [content, setContent]           = useState('')
+  const [docType, setDocType]           = useState('library')
   const [creating, setCreating]         = useState(false)
   const [createStatus, setCreateStatus] = useState(null)
+
+  const [rulesContent, setRulesContent] = useState('')
+  const [savingRules, setSavingRules]   = useState(false)
+  const [rulesStatus, setRulesStatus]   = useState(null)
+
+  const [models, setModels]         = useState([])
+  const [activeModel, setActiveModel] = useState('')
+  const [switchingModel, setSwitchingModel] = useState(false)
+  const [modelStatus, setModelStatus] = useState(null)
 
   const [sources, setSources]               = useState([])
   const [loadingSources, setLoadingSources] = useState(false)
@@ -27,7 +37,40 @@ export function useAdminPanel() {
     finally { setLoadingSources(false) }
   }, [])
 
-  useEffect(() => { loadSources() }, [loadSources])
+  const loadRules = useCallback(async () => {
+    try {
+      const res = await fetch(`${BACKEND}/admin/rules`)
+      const data = await res.json()
+      setRulesContent(data.content ?? '')
+    } catch {}
+  }, [])
+
+  const loadModels = useCallback(async () => {
+    try {
+      const res = await fetch(`${BACKEND}/admin/models`)
+      const data = await res.json()
+      setModels(data.models ?? [])
+      setActiveModel(data.active ?? '')
+    } catch {}
+  }, [])
+
+  useEffect(() => { loadSources(); loadRules(); loadModels() }, [loadSources, loadRules, loadModels])
+
+  async function handleSwitchModel(name) {
+    setSwitchingModel(true); setModelStatus(null)
+    try {
+      const res = await fetch(`${BACKEND}/admin/model`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: name }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.detail ?? 'Failed to switch model')
+      setActiveModel(data.active)
+      setModelStatus({ type: 'success', message: `Switched to ${data.active}` })
+    } catch (err) { setModelStatus({ type: 'error', message: err.message }) }
+    finally { setSwitchingModel(false) }
+  }
 
   function handleDrop(e) {
     e.preventDefault(); setDragOver(false)
@@ -63,15 +106,38 @@ export function useAdminPanel() {
       const data = await res.json()
       if (!res.ok) throw new Error(data.detail ?? 'Failed to create document')
       setCreateStatus({ type: 'success', message: `Saved "${data.source}" — ${data.chunks} chunks added.` })
-      setSourceName(''); setContent('')
       loadSources()
     } catch (err) { setCreateStatus({ type: 'error', message: err.message }) }
     finally { setCreating(false) }
   }
 
+  async function handleSaveRules() {
+    setSavingRules(true); setRulesStatus(null)
+    try {
+      const res = await fetch(`${BACKEND}/admin/rules`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: rulesContent }),
+      })
+      if (!res.ok) throw new Error('Failed to save rules')
+      setRulesStatus({ type: 'success', message: 'Rules saved — Milo will follow these in every conversation.' })
+    } catch (err) { setRulesStatus({ type: 'error', message: err.message }) }
+    finally { setSavingRules(false) }
+  }
+
+  async function deleteSource(name) {
+    try {
+      const res = await fetch(`${BACKEND}/admin/sources/${encodeURIComponent(name)}`, { method: 'DELETE' })
+      if (!res.ok) throw new Error('Delete failed')
+      loadSources()
+    } catch (err) { console.error(err) }
+  }
+
   return {
     uploadFile, setUploadFile, uploading, uploadStatus, dragOver, setDragOver, fileInputRef, handleDrop, handleUpload,
-    sourceName, setSourceName, content, setContent, creating, createStatus, handleCreate,
-    sources, loadingSources, loadSources,
+    sourceName, setSourceName, content, setContent, docType, setDocType, creating, createStatus, handleCreate,
+    rulesContent, setRulesContent, savingRules, rulesStatus, handleSaveRules,
+    models, activeModel, switchingModel, modelStatus, handleSwitchModel,
+    sources, loadingSources, loadSources, deleteSource,
   }
 }
