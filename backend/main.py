@@ -19,11 +19,7 @@ OLLAMA_CHAT_URL = "http://localhost:11434/api/chat"
 OLLAMA_MODEL = "llama3.1:8b"
 HISTORY_LIMIT = 20
 
-BASE_SYSTEM_PROMPT = (
-    "You are Milo, a helpful conversational assistant. "
-    "Respond in plain, clear English by default. "
-    "If a style instruction appears below, follow it exactly for your entire response."
-)
+BASE_SYSTEM_PROMPT = "You are Milo, a helpful conversational assistant."
 
 STYLE_PATTERN = re.compile(
     r"(?:talk|speak|say\s+it|respond|answer|write|reply)\s+(?:\w+\s+){0,3}(?:like|as)\s+(?:a\s+|an\s+)?(\w[\w\s]{0,30})",
@@ -146,25 +142,30 @@ def login(body: LoginRequest):
 @app.post("/chat")
 def chat(body: ChatMessage):
     active_style = get_active_style(body.message, body.history)
-    style_note = (
-        f"\n\nStyle instruction: respond in this style for your entire response: {active_style}."
-        if active_style else ""
-    )
+
+    if active_style:
+        system_base = (
+            f"You are Milo, a helpful conversational assistant. "
+            f"You MUST speak entirely in {active_style} style for every sentence. "
+            f"Apply {active_style} vocabulary and mannerisms even when answering factual questions."
+        )
+    else:
+        system_base = BASE_SYSTEM_PROMPT
 
     if body.use_library:
         chunks = retrieve(body.message, n_results=3)
         if chunks:
             context = build_context(chunks)
             system_content = (
-                BASE_SYSTEM_PROMPT + style_note
+                system_base
                 + "\n\nUse the context below to help answer questions. "
                 "If the answer is not in the context, use your general knowledge.\n\n"
                 f"Context:\n{context}"
             )
         else:
-            system_content = BASE_SYSTEM_PROMPT + style_note
+            system_content = system_base
     else:
-        system_content = BASE_SYSTEM_PROMPT + style_note
+        system_content = system_base
 
     messages = [{"role": "system", "content": system_content}]
 
@@ -172,6 +173,9 @@ def chat(body: ChatMessage):
         messages.append({"role": h.role, "content": h.text})
 
     messages.append({"role": "user", "content": body.message})
+
+    print(f"[DEBUG] history={len(body.history)} messages, active_style={active_style!r}")
+    print(f"[DEBUG] system: {system_content[:120]}")
 
     answer = ask_ollama(messages)
 

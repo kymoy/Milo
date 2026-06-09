@@ -17,9 +17,10 @@ export default function Chat() {
   async function send() {
     const text = input.trim()
     if (!text || loading || text.length > MAX) return
+    const history = messages.slice(1).map(m => ({ role: m.role === 'user' ? 'user' : 'assistant', text: m.text }))
     setMessages(p => [...p, { role: 'user', text }]); setInput(''); setLoading(true)
     try {
-      const res = await fetch(`${BACKEND}/chat`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: text }) })
+      const res = await fetch(`${BACKEND}/chat`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: text, history }) })
       const data = await res.json()
       setMessages(p => [...p, { role: 'bot', text: data.reply }])
     } catch { setMessages(p => [...p, { role: 'bot', text: 'No connection.' }]) }

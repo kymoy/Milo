@@ -34,6 +34,7 @@ export default function Chat() {
       role: msg.role === 'user' ? 'user' : 'assistant',
       text: msg.text,
     }))
+    console.log('[Milo] sending message, total messages in state:', messages.length, 'history being sent:', history.length)
 
     setMessages(prev => [...prev, { role: 'user', text }])
     setInput('')

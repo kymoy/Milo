@@ -33,8 +33,9 @@ export default function Chat() {
   async function send() {
     const text = input.trim()
     if (!text || loading || text.length > MAX) return
+    const history = messages.slice(1).map(m => ({ role: m.role === 'user' ? 'user' : 'assistant', text: m.text }))
     setMessages(p => [...p, { role: 'user', text }]); setInput(''); setLoading(true)
-    const reply = await sendMessage(text, useLibrary)
+    const reply = await sendMessage(text, useLibrary, history)
     setMessages(p => [...p, { role: 'bot', text: reply }])
     setLoading(false)
   }

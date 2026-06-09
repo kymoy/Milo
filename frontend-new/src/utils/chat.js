@@ -1,7 +1,7 @@
 const BACKEND = 'http://localhost:8000'
 const TIMEOUT_MS = 120000
 
-export async function sendMessage(message, useLibrary = true) {
+export async function sendMessage(message, useLibrary = true, history = []) {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
 
@@ -9,7 +9,7 @@ export async function sendMessage(message, useLibrary = true) {
     const res = await fetch(`${BACKEND}/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message, use_library: useLibrary }),
+      body: JSON.stringify({ message, use_library: useLibrary, history }),
       signal: controller.signal,
     })
     clearTimeout(timer)
