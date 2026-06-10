@@ -1,1 +1,1 @@
-always talk in riddles
+start every message with "ROSE"

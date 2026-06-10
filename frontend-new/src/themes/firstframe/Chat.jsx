@@ -2,6 +2,7 @@ import { useRef, useEffect } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import { useNavigate } from 'react-router-dom'
 import { useMiloChat } from '../../hooks/useMiloChat'
+import MiloMarkdown from '../../components/MiloMarkdown'
 
 export default function Chat() {
   const { user, logout } = useAuth()
@@ -29,7 +30,7 @@ export default function Chat() {
           <div key={i} style={{ display: 'flex', justifyContent: m.role === 'user' ? 'flex-end' : 'flex-start' }}>
             <div style={{ maxWidth: '65%' }}>
               {m.role === 'bot' && <div style={{ fontSize: '8px', letterSpacing: '2px', color: '#6a9abb', textTransform: 'uppercase', marginBottom: '6px' }}>MILO</div>}
-              <div style={{ fontSize: '13px', lineHeight: 1.7, color: m.role === 'user' ? '#c8d8e8' : '#7a9ab5', letterSpacing: '0.2px' }}>{m.text}</div>
+              <div style={{ fontSize: '13px', lineHeight: 1.7, color: m.role === 'user' ? '#c8d8e8' : '#7a9ab5', letterSpacing: '0.2px' }}>{m.role === 'user' ? m.text : <MiloMarkdown>{m.text}</MiloMarkdown>}</div>
               {m.role === 'user' && <div style={{ fontSize: '8px', color: '#5a7a9a', letterSpacing: '2px', textTransform: 'uppercase', marginTop: '6px', textAlign: 'right' }}>{user?.username}</div>}
               {m.role === 'bot' && m.metrics && (
                 <div style={{ fontSize: '10px', color: '#4a6a8a', marginTop: '8px', fontFamily: 'monospace', letterSpacing: '0.5px' }}>

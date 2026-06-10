@@ -1,0 +1,64 @@
+{
+  "id": "8e498a1e-7de6-41c9-a4ee-b43bfab21762",
+  "title": "make associations to the random words I'm about to say one a",
+  "created_at": "2026-06-10T00:57:35.807957+00:00",
+  "updated_at": "2026-06-10T01:01:52.111573+00:00",
+  "messages": [
+    {
+      "role": "user",
+      "text": "make associations to the random words I'm about to say one at a time"
+    },
+    {
+      "role": "bot",
+      "text": "ROSE Sure, go ahead and say your first word."
+    },
+    {
+      "role": "user",
+      "text": "bubble"
+    },
+    {
+      "role": "bot",
+      "text": "ROSE Bubble can be associated with various things like bath time, soap, popping sounds, or even champagne. What's your next word?"
+    },
+    {
+      "role": "user",
+      "text": "also connect one of the things you said to the next word I give you--that was not the last word I said. tell me the words you use: peter"
+    },
+    {
+      "role": "bot",
+      "text": "ROSE When you mentioned \"bubble,\" I associated it with bath time and soap. Now, for your word \"Peter,\" a natural connection could be a character from stories or a name given to someone named after Saint Peter in Christian tradition.\n\nWhat's your next word?"
+    },
+    {
+      "role": "user",
+      "text": "gone"
+    },
+    {
+      "role": "bot",
+      "text": "ROSE So, you're connecting the bubble to something that is gone, perhaps like bubbles dissolving or fading away. Now for your new word \"gone,\" this could remind us of a sense of loss or the disappearance of something or someone.\n\nWhat's your next word?"
+    },
+    {
+      "role": "user",
+      "text": "whats the first word I gave you?"
+    },
+    {
+      "role": "bot",
+      "text": "ROSE The first word you gave me was \"bubble.\""
+    },
+    {
+      "role": "user",
+      "text": "shadow"
+    },
+    {
+      "role": "bot",
+      "text": "ROSE So, if we're connecting \"gone\" with \"bubble,\" and now using \"shadow,\" it might evoke a feeling of something that is no longer present or has faded away, much like a shadow that disappears in sunlight.\n\nWhat's your next word?"
+    },
+    {
+      "role": "user",
+      "text": "repeat the list of words I gave"
+    },
+    {
+      "role": "bot",
+      "text": "ROSE You gave me the following words: gone, shadow."
+    }
+  ]
+}

@@ -1,6 +1,9 @@
 import re
+import json
+import uuid
 import subprocess
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from collections import deque
 import psutil
@@ -28,9 +31,33 @@ HISTORY_LIMIT = 20
 
 BASE_SYSTEM_PROMPT = "You are Milo, a helpful conversational assistant."
 
-RULES_PATH  = Path(__file__).parent / "milo_rules.md"
-MODEL_PATH  = Path(__file__).parent / "milo_model.txt"
-METRICS_HISTORY: deque = deque(maxlen=100)
+CHATS_DIR    = Path(__file__).parent / "chats"
+CHATS_DIR.mkdir(exist_ok=True)
+RULES_PATH   = Path(__file__).parent / "milo_rules.md"
+MODEL_PATH   = Path(__file__).parent / "milo_model.txt"
+METRICS_PATH = Path(__file__).parent / "milo_metrics.json"
+
+
+def _load_metrics() -> list:
+    if METRICS_PATH.exists():
+        try:
+            return json.loads(METRICS_PATH.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+    return []
+
+
+def _save_metrics() -> None:
+    try:
+        METRICS_PATH.write_text(
+            json.dumps(list(METRICS_HISTORY), ensure_ascii=False),
+            encoding="utf-8",
+        )
+    except Exception:
+        pass
+
+
+METRICS_HISTORY: deque = deque(_load_metrics(), maxlen=500)
 
 _active_model: str = (
     MODEL_PATH.read_text(encoding="utf-8").strip()
@@ -79,11 +106,14 @@ def _detect_style(text: str) -> tuple[bool, str | None]:
 
 
 def get_active_style(message: str, history: list) -> str | None:
-    """Return the currently active style by checking the current message then history newest-first."""
+    """Return the currently active style from the current message, then history newest-first.
+    A sentinel role='system' message with text='__reset_style__' marks a session boundary — stop scanning there."""
     changed, style = _detect_style(message)
     if changed:
         return style
     for h in reversed(history):
+        if h.role == "system" and h.text == "__reset_style__":
+            break
         if h.role == "user":
             changed, style = _detect_style(h.text)
             if changed:
@@ -198,12 +228,14 @@ def ask_ollama(messages: list[dict]) -> dict:
         sys_stats = get_system_stats()
         metrics = {
             "ts": time.time(),
+            "model": get_active_model(),
             "response_ms": elapsed_ms,
             "cpu_percent": cpu,
             "tokens_per_sec": tokens_per_sec,
             **sys_stats,
         }
         METRICS_HISTORY.append(metrics)
+        _save_metrics()
 
         return {
             "text": data.get("message", {}).get("content", "").strip(),
@@ -273,10 +305,24 @@ def admin_get_models():
     try:
         res = requests.get(f"{OLLAMA_BASE_URL}/api/tags", timeout=5)
         res.raise_for_status()
-        models = [m["name"] for m in res.json().get("models", [])]
+        raw = res.json().get("models", [])
+        detailed = [
+            {
+                "name": m["name"],
+                "size_gb": round(m.get("size", 0) / 1e9, 1),
+                "params": m.get("details", {}).get("parameter_size", "?"),
+                "quantization": m.get("details", {}).get("quantization_level", "?"),
+                "modified": m.get("modified_at", "")[:10],
+            }
+            for m in raw
+        ]
     except Exception:
-        models = []
-    return {"models": models, "active": get_active_model()}
+        detailed = []
+    return {
+        "models": [m["name"] for m in detailed],
+        "models_detailed": detailed,
+        "active": get_active_model(),
+    }
 
 
 @app.post("/admin/model")
@@ -337,6 +383,75 @@ def admin_delete_source(source_name: str):
 def admin_create(body: CreateDocRequest):
     chunks = ingest_text(body.content, body.source_name)
     return {"source": body.source_name, "chunks": chunks}
+
+
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+@app.get("/chats")
+def list_chats():
+    sessions = []
+    for f in sorted(CHATS_DIR.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True):
+        try:
+            data = json.loads(f.read_text(encoding="utf-8"))
+            sessions.append({
+                "id": data["id"],
+                "title": data.get("title", "Untitled"),
+                "created_at": data.get("created_at", ""),
+                "updated_at": data.get("updated_at", ""),
+                "message_count": sum(1 for m in data.get("messages", []) if m["role"] == "user"),
+            })
+        except Exception:
+            pass
+    return {"sessions": sessions}
+
+
+@app.get("/chats/{session_id}")
+def get_chat(session_id: str):
+    path = CHATS_DIR / f"{session_id}.json"
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Session not found.")
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+@app.post("/chats")
+def save_chat(body: dict):
+    session_id = body.get("id") or str(uuid.uuid4())
+    path = CHATS_DIR / f"{session_id}.json"
+    messages = body.get("messages", [])
+
+    title = "New chat"
+    for m in messages:
+        if m.get("role") == "user" and m.get("text"):
+            title = m["text"][:60]
+            break
+
+    created_at = _now()
+    if path.exists():
+        try:
+            existing = json.loads(path.read_text(encoding="utf-8"))
+            created_at = existing.get("created_at", created_at)
+        except Exception:
+            pass
+
+    data = {
+        "id": session_id,
+        "title": title,
+        "created_at": created_at,
+        "updated_at": _now(),
+        "messages": messages,
+    }
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    return {"id": session_id, "title": title}
+
+
+@app.delete("/chats/{session_id}")
+def delete_chat(session_id: str):
+    path = CHATS_DIR / f"{session_id}.json"
+    if path.exists():
+        path.unlink()
+    return {"deleted": session_id}
 
 
 @app.post("/chat")

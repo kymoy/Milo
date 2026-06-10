@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import Sidebar from '../../components/Sidebar'
 import SettingsPanel from '../../components/SettingsPanel'
 import { useMiloChat } from '../../hooks/useMiloChat'
+import MiloMarkdown from '../../components/MiloMarkdown'
 
 const SERIF  = { fontFamily: "'Cormorant Garamond', Georgia, serif", fontWeight: 300 }
 const MONO_U = { fontFamily: "'Inter', system-ui, sans-serif", fontWeight: 200, letterSpacing: '3px', textTransform: 'uppercase' }
@@ -20,7 +21,7 @@ export default function Chat() {
   const c = mode === 'dark' ? DARK : LIGHT
 
   const greeting = `What's good, ${user?.username}? I'm Milo.`
-  const { messages, input, setInput, loading, send, resetChat } = useMiloChat(greeting, useLibrary)
+  const { messages, input, setInput, loading, send, resetChat, sessionId, loadSession } = useMiloChat(greeting, useLibrary)
 
   const bottomRef = useRef(null)
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
@@ -33,7 +34,7 @@ export default function Chat() {
 
   return (
     <div style={{ display: 'flex', height: '100vh', background: c.bg }}>
-      <Sidebar colors={c} user={user} onLogout={handleLogout} onSettings={() => setShowSettings(true)} onNewChat={resetChat} />
+      <Sidebar colors={c} user={user} onLogout={handleLogout} onSettings={() => setShowSettings(true)} onNewChat={resetChat} onLoadSession={loadSession} activeSessionId={sessionId} />
 
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
         <header style={{ display: 'flex', justifyContent: 'flex-end', padding: '16px 24px', borderBottom: `2px solid ${c.border}` }}>
@@ -47,7 +48,7 @@ export default function Chat() {
           {messages.map((m, i) => (
             <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: m.role === 'user' ? 'flex-end' : 'flex-start' }}>
               <div style={{ maxWidth: '68%', fontSize: '15px', lineHeight: 1.6, fontFamily: 'system-ui', color: m.role === 'user' ? '#fff' : c.botText, background: m.role === 'user' ? c.accent : c.botBubble, border: m.role === 'bot' ? `2px solid ${c.border}` : 'none', padding: '12px 16px', borderRadius: '4px' }}>
-                {m.text}
+                {m.role === 'user' ? m.text : <MiloMarkdown>{m.text}</MiloMarkdown>}
               </div>
               {m.role === 'bot' && m.metrics && (
                 <div style={{ fontSize: '11px', color: c.muted, marginTop: '4px', fontFamily: 'monospace' }}>
@@ -74,4 +75,5 @@ export default function Chat() {
     </div>
   )
 }
+
 

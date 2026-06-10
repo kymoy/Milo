@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { useNavigate } from 'react-router-dom'
+import MiloMarkdown from '../components/MiloMarkdown'
 
 const BACKEND = 'http://localhost:8000'
 const MAX_LENGTH = 2000
@@ -82,7 +83,7 @@ export default function Chat() {
                   ? 'bg-[#7c3aed] text-white rounded-br-sm'
                   : 'bg-[#1e1e2e] border border-[#2a2a3a] text-[#e8e8f0] rounded-bl-sm'
               }`}>
-                {msg.text}
+                {msg.role === 'user' ? msg.text : <MiloMarkdown>{msg.text}</MiloMarkdown>}
               </div>
             </div>
           ))}

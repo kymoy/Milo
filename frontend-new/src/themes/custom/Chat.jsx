@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import { useNavigate } from 'react-router-dom'
+import MiloMarkdown from '../../components/MiloMarkdown'
 
 const BACKEND = 'http://localhost:8000'
 const MAX = 2000
@@ -52,7 +53,7 @@ export default function Chat() {
         {messages.map((m, i) => (
           <div key={i} style={{ display: 'flex', justifyContent: m.role === 'user' ? 'flex-end' : 'flex-start' }}>
             <div style={{ maxWidth: '68%', fontSize: '14px', lineHeight: 1.6, fontFamily: 'system-ui', color: m.role === 'user' ? '#fff' : c.botText, background: m.role === 'user' ? c.userBubble : c.botBubble, border: m.role === 'bot' ? border : 'none', padding: '12px 16px', borderRadius: '10px' }}>
-              {m.text}
+              {m.role === 'user' ? m.text : <MiloMarkdown>{m.text}</MiloMarkdown>}
             </div>
           </div>
         ))}

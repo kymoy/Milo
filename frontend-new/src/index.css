@@ -1,1 +1,22 @@
 @import "tailwindcss";
+
+/* Markdown rendering inside chat bubbles */
+.milo-md p { margin: 0 0 0.5em; }
+.milo-md p:last-child { margin-bottom: 0; }
+.milo-md ul, .milo-md ol { margin: 0.25em 0 0.5em; padding-left: 1.5em; }
+.milo-md ul:last-child, .milo-md ol:last-child { margin-bottom: 0; }
+.milo-md li { margin: 0.1em 0; }
+.milo-md h1, .milo-md h2, .milo-md h3, .milo-md h4 { margin: 0.5em 0 0.25em; font-weight: 600; line-height: 1.3; }
+.milo-md h1 { font-size: 1.2em; }
+.milo-md h2 { font-size: 1.1em; }
+.milo-md h3, .milo-md h4 { font-size: 1em; }
+.milo-md strong { font-weight: 600; }
+.milo-md em { font-style: italic; }
+.milo-md code { font-family: 'Fira Code', 'Cascadia Code', monospace; font-size: 0.88em; background: rgba(0,0,0,0.25); padding: 0.1em 0.35em; border-radius: 3px; }
+.milo-md pre { margin: 0.5em 0; border-radius: 6px; overflow-x: auto; }
+.milo-md pre:last-child { margin-bottom: 0; }
+.milo-md pre code { display: block; padding: 0.75em 1em; background: rgba(0,0,0,0.3); border-radius: 6px; font-size: 0.85em; line-height: 1.5; }
+.milo-md blockquote { border-left: 3px solid currentColor; padding-left: 0.75em; margin: 0.25em 0; opacity: 0.75; }
+.milo-md table { border-collapse: collapse; margin: 0.5em 0; font-size: 0.9em; }
+.milo-md th, .milo-md td { border: 1px solid rgba(255,255,255,0.2); padding: 0.3em 0.6em; }
+.milo-md th { font-weight: 600; }
