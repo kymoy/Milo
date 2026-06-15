@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { useLocation } from 'react-router-dom'
 import { sendMessage } from '../utils/chat'
 
 const BACKEND = 'http://localhost:8000'
@@ -23,8 +24,18 @@ async function persistSession(sessionId, messages) {
 }
 
 export function useMiloChat(greeting, useLibrary = true) {
-  const [sessionId, setSessionId] = useState(null)
-  const [messages, setMessages] = useState([{ role: 'bot', text: greeting }])
+  const { state } = useLocation()
+  const [sessionId, setSessionId] = useState(() => state?.pendingSession?.id ?? null)
+  const [messages, setMessages] = useState(() => {
+    const pending = state?.pendingSession
+    if (!pending) return [{ role: 'bot', text: greeting }]
+    const timings = JSON.parse(localStorage.getItem(`milo_timings_${pending.id}`) || '[]')
+    const withTimings = pending.messages.map((m, i) => {
+      const ms = timings[i]
+      return ms != null ? { ...m, metrics: { response_ms: ms } } : m
+    })
+    return [{ role: 'bot', text: greeting }, ...withTimings]
+  })
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
 

@@ -1,5 +1,7 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
+
+const BACKEND = 'http://localhost:8000'
 
 const SERIF  = { fontFamily: "'Cormorant Garamond', Georgia, serif", fontWeight: 300 }
 const MONO_U = { fontFamily: "'Inter', system-ui, sans-serif", fontWeight: 200, letterSpacing: '3px', textTransform: 'uppercase' }
@@ -41,6 +43,14 @@ export default function SettingsPanel({ colors: c, user, onClose, onLogout, useL
   const navigate = useNavigate()
   const { pathname } = useLocation()
   const currentTheme = THEMES.find(t => pathname.startsWith(t.path.replace('/chat', '')))?.path ?? null
+  const [activeModel, setActiveModel] = useState(null)
+
+  useEffect(() => {
+    fetch(`${BACKEND}/admin/models`)
+      .then(r => r.json())
+      .then(d => setActiveModel(d.active ?? null))
+      .catch(() => setActiveModel(null))
+  }, [])
 
   return (
     <>
@@ -99,7 +109,9 @@ export default function SettingsPanel({ colors: c, user, onClose, onLogout, useL
             <div style={ROW(c)}>
               <div>
                 <div style={{ ...SERIF, fontSize: '16px', color: c.text }}>AI Model</div>
-                <div style={{ ...SERIF, fontSize: '13px', color: c.muted, fontStyle: 'italic' }}>Ollama — llama3.1:8b</div>
+                <div style={{ ...SERIF, fontSize: '13px', color: c.muted, fontStyle: 'italic' }}>
+                  {activeModel ? `Ollama — ${activeModel}` : 'Ollama — checking...'}
+                </div>
               </div>
               <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#4ade80' }} />
             </div>

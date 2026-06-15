@@ -14,6 +14,7 @@ export async function sendMessage(message, useLibrary = true, history = []) {
     })
     clearTimeout(timer)
     const data = await res.json()
+    if (!res.ok) return { reply: `Error: ${data.detail ?? 'Something went wrong.'}`, metrics: null }
     return { reply: data.reply ?? 'No response received.', metrics: data.metrics ?? null }
   } catch (err) {
     clearTimeout(timer)

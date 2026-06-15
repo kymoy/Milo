@@ -9,8 +9,14 @@ import { useAdminPanel } from '../../hooks/useAdminPanel'
 const SERIF  = { fontFamily: "'Cormorant Garamond', Georgia, serif", fontWeight: 300 }
 const MONO_U = { fontFamily: "'Inter', system-ui, sans-serif", fontWeight: 200, letterSpacing: '4px', textTransform: 'uppercase' }
 
-const DARK  = { bg: 'linear-gradient(135deg, #070d1a 0%, #0c1829 100%)', sidebar: '#080f1e', border: 'rgba(59,130,246,0.2)', text: '#e0eeff', muted: '#7099cc', accent: '#60a5fa', input: 'rgba(59,130,246,0.06)', userBubble: 'linear-gradient(135deg,#60a5fa,#1d4ed8)', botBubble: 'rgba(59,130,246,0.08)', botText: '#93c5fd' }
+const DARK  = { bg: 'linear-gradient(135deg, #0d1b35 0%, #162040 100%)', sidebar: '#0f1e38', border: 'rgba(96,165,250,0.25)', text: '#e8f0ff', muted: '#90b8f0', accent: '#60a5fa', input: 'rgba(96,165,250,0.08)', userBubble: 'linear-gradient(135deg,#60a5fa,#1d4ed8)', botBubble: 'rgba(59,130,246,0.14)', botText: '#bcd9ff' }
 const LIGHT = { bg: 'linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)', sidebar: '#dbeafe',   border: 'rgba(59,130,246,0.25)', text: '#1e3a5f', muted: '#3b6cb0', accent: '#1d4ed8', input: 'rgba(59,130,246,0.05)', userBubble: 'linear-gradient(135deg,#60a5fa,#1d4ed8)', botBubble: 'rgba(59,130,246,0.07)', botText: '#1e3a5f' }
+
+const GLOWS = [
+  { top: '5%',  left: '35%', size: '520px', color: 'rgba(59,130,246,0.11)',  blur: '110px' },
+  { bottom: '12%', right: '18%', size: '400px', color: 'rgba(99,102,241,0.09)', blur: '85px'  },
+  { top: '58%', left: '6%',  size: '300px', color: 'rgba(147,197,253,0.08)', blur: '65px'  },
+]
 
 export default function Admin() {
   const { user, logout } = useAuth()
@@ -27,10 +33,15 @@ export default function Admin() {
   }
 
   return (
-    <div style={{ display: 'flex', height: '100vh', background: c.bg }}>
+    <div style={{ display: 'flex', height: '100vh', background: c.bg, position: 'relative', overflow: 'hidden' }}>
+
+      {mode === 'dark' && GLOWS.map((g, i) => (
+        <div key={i} style={{ position: 'absolute', borderRadius: '50%', background: g.color, filter: `blur(${g.blur})`, pointerEvents: 'none', width: g.size, height: g.size, top: g.top, bottom: g.bottom, left: g.left, right: g.right }} />
+      ))}
+
       <Sidebar colors={c} user={user} onLogout={handleLogout} onSettings={() => setShowSettings(true)} onNewChat={() => navigate('/azure/chat')} />
 
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, position: 'relative' }}>
         <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 24px', borderBottom: `1px solid ${c.border}` }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
             <span style={{ ...MONO_U, fontSize: '11px', color: c.accent }}>MILO</span>
@@ -52,4 +63,3 @@ export default function Admin() {
     </div>
   )
 }
-

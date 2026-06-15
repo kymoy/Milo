@@ -1,5 +1,63 @@
 # Milo Updates
 
+## [2026-06-12] AWS Bedrock provider, parent-child RAG chunking, benchmark integration, sidebar polish
+
+### Added
+- **AWS Bedrock provider**: Backend can now route LLM calls to AWS Bedrock instead of Ollama. Toggle via `POST /admin/provider` — supports Llama 3 8B/70B, Mistral 7B, Claude 3 Haiku/Sonnet, and Titan Text. Credentials via `aws configure` or environment variables. Persists across restarts via `milo_provider.txt`.
+- **Parent-child RAG chunking**: Knowledge library now ingests documents as linked parent (12-sentence) and child (3-sentence) chunks. Vector search runs on small, precise child chunks; the matched parent chunk is sent to the model for richer context. Falls back to child chunks for data ingested before this change.
+- **Benchmark integration in model comparison table**: Each recommended model now has a Run button. After running, measured columns populate: actual tok/s, CPU %, RAM %, and accuracy score (12 factual/reasoning questions). Hover any row for a tooltip showing avg stats from real conversations.
+- **RAM process breakdown donut chart**: Hovering the RAM column in the comparison table shows a color-coded donut breaking down memory by process (Ollama, Python, Chrome, etc.).
+- **Source content viewer/editor**: Clicking a source tag in the Knowledge Library opens a modal showing its ingested chunks. Content can be edited and re-ingested in-place without re-uploading the file.
+- **Live active model in Settings panel**: The AI Model row now fetches and shows the actual active model from the backend instead of a hardcoded label.
+- **Sidebar loads real chat sessions**: Replaced placeholder chats with real sessions from `GET /chats`. Sessions refresh every 10 seconds. Click any session to load it, hover to reveal a delete button.
+- **Admin ↔ chat navigation preserves session**: Switching between admin and chat via the sidebar saves and restores the last active session via `localStorage`.
+- **Gemma4 added to recommended models**: Added `gemma4:e4b` (multimodal, edge-optimized, 55–165 tok/s with MTP) to the model comparison table.
+
+### Bug fixes
+- **Corrected quantized model names** in recommendations: `llama3.1:8b-q4_K_M` → `llama3.1:8b-instruct-q4_K_M`, `llama3.3:70b-q4_K_M` → `llama3.3:70b-instruct-q4_K_M`
+
+### Notes
+- **AWS remote desktop requirement**: Investigated using AWS to check whether additional RAM capacity would improve model performance. Running models from an EC2 instance requires VS Code Server (Remote Development) installed on the remote machine — not set up yet, so this is deferred.
+
+---
+
+## [2026-06-09] Performance tuning, markdown rendering, and admin polish
+
+### Added
+- **Markdown rendering**: Bot messages now render full markdown across all themes — bold, italics, lists, code blocks, tables, blockquotes (react-markdown + remark-gfm)
+- **Response time persistence**: Timing data stored in localStorage per session and restored when loading old conversations — the time-per-message stat no longer disappears
+- **Chat history cap**: History sent to the model capped at last 6 messages to keep response times consistent as conversations grow
+- **Model selector dropdown**: Replaced the installed models table in admin with a compact dropdown above the diagnostics graphs — shows active model and size clearly
+- **Diagnostics synced to active model**: Switching the active model now automatically filters the diagnostics graphs to that model's data
+- **Active model moved to Models tab only**: Removed the redundant model selector from the Library tab
+- **Efficiency tips moved to bottom of Models tab**: Tips now sit below all other model content
+
+### Bug fixes
+- **Style bleed between sessions**: Speaking style instructions (e.g. "talk like a pirate") were carrying over into new chat sessions via history scanning. Fixed with a session boundary sentinel — styles persist within a session but reset cleanly on new chat
+- **Duplicate model comparison tables**: Removed the "Model alternatives" table from DiagnosticsPanel — identical to the "Model comparison" table already in AdminContent
+
+---
+
+## [2026-06-09] Admin overhaul, diagnostics, model management, chat persistence, new theme
+
+### Added
+- **Persistent chat history**: Every conversation is automatically saved to `backend/chats/`. Sessions survive page reloads and backend restarts. The Sidebar now shows your real chat list — click any to reload it, hover to reveal a delete button.
+- **Admin tabs**: Admin page now has a Library tab (upload, create doc, knowledge sources) and a Models tab (diagnostics, installed models, pull helper, comparison table).
+- **Model switcher dropdown**: Admin can switch the active Ollama model without editing code. Selection persists across restarts via `milo_model.txt`.
+- **Milo Rules**: Admin can write persistent rules in the Markdown File section of the admin page. Rules are saved to `milo_rules.md` and injected into every chat system prompt.
+- **Diagnostics panel**: Live sparkline graphs for response time, tokens/sec, CPU %, RAM %, GPU %, and VRAM. History now persists to `milo_metrics.json` so graphs carry over across restarts. Includes efficiency tips checklist and model alternatives table.
+- **Delete sources from library**: Each source tag in the knowledge library now has an × button to remove it from ChromaDB.
+- **Azure theme**: New blue theme with dark/light mode and blurry background glow orbs.
+- **Dark/light mode persists**: Mode is now saved in localStorage and carries over when switching themes.
+- **MILO logo navigates to theme picker**: Clicking MILO in the sidebar takes you to the theme chooser.
+- **Theme switcher in Settings**: Added Azure to the theme grid in SettingsPanel.
+- **Daily summary reminder**: Scheduled agent runs at 8:30pm EDT — adds a placeholder to Milo Updates.md if today's work wasn't documented, removes stale unfilled ones the next day.
+
+### Bug fixes
+- **Crystals theme low contrast**: Bot text and muted text were too dim to read. Bumped to `#e8e8e8` dark / `#222` light.
+- **Model dropdown invisible options**: `<option>` elements were invisible on dark themes because the background was transparent. Fixed by using `c.sidebar` (always opaque) as the dropdown background.
+- **Admin login sent to theme picker**: Routes like `/lavender/admin` didn't exist, so the catch-all sent admins to `/`. All theme logins now navigate to the correct themed admin route.
+
 ## Unreleased
 
 ### Added

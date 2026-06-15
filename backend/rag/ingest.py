@@ -1,78 +1,167 @@
+import re
 import chromadb
 from pathlib import Path
 
-DB_PATH = Path(__file__).parent.parent / "chroma_db"
-COLLECTION = "milo_library"
+DB_PATH           = Path(__file__).parent.parent / "chroma_db"
+COLLECTION        = "milo_library"
+PARENT_COLLECTION = "milo_library_parents"
+
+CHILD_SENTENCES  = 3
+CHILD_OVERLAP    = 1
+PARENT_SENTENCES = 12
+PARENT_OVERLAP   = 2
+
+_client = None
+
+
+def _get_client():
+    global _client
+    if _client is None:
+        _client = chromadb.PersistentClient(path=str(DB_PATH))
+    return _client
 
 
 def _get_collection():
-    client = chromadb.PersistentClient(path=str(DB_PATH))
-    return client.get_or_create_collection(
+    return _get_client().get_or_create_collection(
         name=COLLECTION,
         metadata={"hnsw:space": "cosine"},
     )
 
 
-def _chunk_text(text: str, chunk_size: int = 400, overlap: int = 80) -> list[str]:
-    """Split by double newline (paragraphs/sections) first.
-    If a paragraph is still too large, sub-chunk it by word count."""
+def _get_parent_collection():
+    return _get_client().get_or_create_collection(
+        name=PARENT_COLLECTION,
+        metadata={"hnsw:space": "cosine"},
+    )
+
+
+def _extract_topic(first_sentence: str, heading: str | None) -> str:
+    """Derive a short topic label from a section heading or first sentence."""
+    source = heading if heading else first_sentence
+    source = source.strip().lstrip("#").strip()
+    match = re.search(r"[.!?]", source[:80])
+    if match and match.start() > 10:
+        return source[: match.start()].strip()
+    return source[:60].rstrip() + ("…" if len(source) > 60 else "")
+
+
+def _extract_sentences(text: str) -> list[dict]:
+    """Split text into annotated sentences, tracking nearest heading context."""
     paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
-    chunks = []
+    annotated: list[dict] = []
+    current_heading: str | None = None
+
     for para in paragraphs:
-        words = para.split()
-        if len(words) <= chunk_size:
-            chunks.append(para)
-        else:
-            i = 0
-            while i < len(words):
-                chunk = " ".join(words[i : i + chunk_size])
-                chunks.append(chunk)
-                i += chunk_size - overlap
-    return [c for c in chunks if len(c.strip()) > 20]
+        if re.match(r"^#{1,6}\s", para):
+            current_heading = para.lstrip("#").strip()
+            continue
+        if len(para) < 100 and not re.search(r"[.!?]", para) and para[0].isupper():
+            current_heading = para.rstrip(":").strip()
+            continue
+        for s in re.split(r"(?<=[.!?])\s+", para):
+            s = s.strip()
+            if len(s) > 15:
+                annotated.append({"text": s, "heading": current_heading})
+
+    return annotated
 
 
 def ingest_text(text: str, source_name: str) -> int:
-    """Chunk raw text and store in ChromaDB. Returns chunk count."""
-    chunks = _chunk_text(text)
-    if not chunks:
+    """Chunk text into parent/child pairs and store in ChromaDB. Returns child chunk count."""
+    sentences = _extract_sentences(text)
+    if not sentences:
         return 0
-    collection = _get_collection()
-    ids       = [f"{source_name}_{i}" for i in range(len(chunks))]
-    metadatas = [{"source": source_name, "chunk": i} for i in range(len(chunks))]
-    existing = collection.get(where={"source": source_name})
-    if existing["ids"]:
-        collection.delete(ids=existing["ids"])
-    collection.add(documents=chunks, ids=ids, metadatas=metadatas)
-    return len(chunks)
+
+    child_coll  = _get_collection()
+    parent_coll = _get_parent_collection()
+
+    for coll in (child_coll, parent_coll):
+        existing = coll.get(where={"source": source_name})
+        if existing["ids"]:
+            coll.delete(ids=existing["ids"])
+
+    parent_ids, parent_docs, parent_metas = [], [], []
+    child_ids, child_docs, child_metas    = [], [], []
+    global_child_idx = 0
+    p_idx   = 0
+    p_start = 0
+
+    while p_start < len(sentences):
+        p_end   = min(p_start + PARENT_SENTENCES, len(sentences))
+        p_group = sentences[p_start:p_end]
+        parent_text = " ".join(s["text"] for s in p_group)
+        if len(parent_text.strip()) < 20:
+            p_start += PARENT_SENTENCES - PARENT_OVERLAP
+            p_idx += 1
+            continue
+
+        parent_id    = f"{source_name}_parent_{p_idx}"
+        heading      = next((s["heading"] for s in p_group if s["heading"]), None)
+        parent_topic = _extract_topic(p_group[0]["text"], heading)
+        parent_ids.append(parent_id)
+        parent_docs.append(parent_text)
+        parent_metas.append({"source": source_name, "parent_idx": p_idx, "topic": parent_topic})
+
+        c_start = p_start
+        c_idx   = 0
+        while c_start + CHILD_SENTENCES <= p_end:
+            c_group    = sentences[c_start: c_start + CHILD_SENTENCES]
+            child_text = " ".join(s["text"] for s in c_group)
+            if len(child_text.strip()) >= 20:
+                c_heading   = next((s["heading"] for s in c_group if s["heading"]), None)
+                child_topic = _extract_topic(c_group[0]["text"], c_heading) if c_group else parent_topic
+                child_ids.append(f"{source_name}_{p_idx}_{c_idx}")
+                child_docs.append(child_text)
+                child_metas.append({
+                    "source":    source_name,
+                    "parent_id": parent_id,
+                    "chunk":     global_child_idx,
+                    "topic":     child_topic or parent_topic,
+                })
+                global_child_idx += 1
+                c_idx += 1
+            c_start += CHILD_SENTENCES - CHILD_OVERLAP
+
+        p_start += PARENT_SENTENCES - PARENT_OVERLAP
+        p_idx += 1
+
+    if parent_ids:
+        parent_coll.add(documents=parent_docs, ids=parent_ids, metadatas=parent_metas)
+    if child_ids:
+        child_coll.add(documents=child_docs, ids=child_ids, metadatas=child_metas)
+
+    return len(child_ids)
 
 
 def delete_source(source_name: str) -> int:
-    """Delete all chunks for a source from ChromaDB. Returns number of chunks removed."""
-    collection = _get_collection()
-    existing = collection.get(where={"source": source_name})
-    if existing["ids"]:
-        collection.delete(ids=existing["ids"])
-        return len(existing["ids"])
-    return 0
+    """Delete all chunks for a source from both collections. Returns total removed."""
+    child_coll  = _get_collection()
+    parent_coll = _get_parent_collection()
+    count = 0
+    for coll in (child_coll, parent_coll):
+        existing = coll.get(where={"source": source_name})
+        if existing["ids"]:
+            coll.delete(ids=existing["ids"])
+            count += len(existing["ids"])
+    return count
 
 
 def ingest_file(filepath: str, source_name: str | None = None) -> int:
     """Load a text file, chunk it, and store in ChromaDB. Returns chunk count."""
-    text = Path(filepath).read_text(encoding="utf-8")
+    text   = Path(filepath).read_text(encoding="utf-8")
     source = source_name or Path(filepath).stem
-    chunks = _chunk_text(text)
+    return ingest_text(text, source)
+
+
+def get_source_chunks(source_name: str) -> list[dict]:
+    """Return all child chunks for a source, sorted by chunk index."""
     collection = _get_collection()
-
-    ids       = [f"{source}_{i}" for i in range(len(chunks))]
-    metadatas = [{"source": source, "chunk": i} for i in range(len(chunks))]
-
-    # Delete existing entries for this source so re-ingestion is safe
-    existing = collection.get(where={"source": source})
-    if existing["ids"]:
-        collection.delete(ids=existing["ids"])
-
-    collection.add(documents=chunks, ids=ids, metadatas=metadatas)
-    return len(chunks)
+    results = collection.get(where={"source": source_name}, include=["documents", "metadatas"])
+    pairs = sorted(zip(results["metadatas"], results["documents"]), key=lambda x: x[0].get("chunk", 0))
+    return [
+        {"index": m.get("chunk", i), "text": doc, "topic": m.get("topic", "")}
+        for i, (m, doc) in enumerate(pairs)
+    ]
 
 
 def list_sources() -> list[str]:

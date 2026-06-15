@@ -19,13 +19,19 @@ export function useAdminPanel() {
   const [savingRules, setSavingRules]   = useState(false)
   const [rulesStatus, setRulesStatus]   = useState(null)
 
-  const [models, setModels]         = useState([])
-  const [activeModel, setActiveModel] = useState('')
+  const [models, setModels]               = useState([])
+  const [modelsDetailed, setModelsDetailed] = useState([])
+  const [activeModel, setActiveModel]     = useState('')
   const [switchingModel, setSwitchingModel] = useState(false)
-  const [modelStatus, setModelStatus] = useState(null)
+  const [modelStatus, setModelStatus]     = useState(null)
 
   const [sources, setSources]               = useState([])
   const [loadingSources, setLoadingSources] = useState(false)
+
+  const [benchmarks, setBenchmarks]           = useState({})
+  const [benchmarkRunning, setBenchmarkRunning] = useState(null)
+  const [benchmarkError, setBenchmarkError]   = useState(null)
+  const [diagHistory, setDiagHistory]         = useState([])
 
   const loadSources = useCallback(async () => {
     setLoadingSources(true)
@@ -50,11 +56,28 @@ export function useAdminPanel() {
       const res = await fetch(`${BACKEND}/admin/models`)
       const data = await res.json()
       setModels(data.models ?? [])
+      setModelsDetailed(data.models_detailed ?? [])
       setActiveModel(data.active ?? '')
     } catch {}
   }, [])
 
-  useEffect(() => { loadSources(); loadRules(); loadModels() }, [loadSources, loadRules, loadModels])
+  const loadBenchmarks = useCallback(async () => {
+    try {
+      const res = await fetch(`${BACKEND}/admin/benchmarks`)
+      const data = await res.json()
+      setBenchmarks(data ?? {})
+    } catch {}
+  }, [])
+
+  const loadDiagHistory = useCallback(async () => {
+    try {
+      const res = await fetch(`${BACKEND}/admin/diagnostics`)
+      const data = await res.json()
+      setDiagHistory(data.history ?? [])
+    } catch {}
+  }, [])
+
+  useEffect(() => { loadSources(); loadRules(); loadModels(); loadBenchmarks(); loadDiagHistory() }, [loadSources, loadRules, loadModels, loadBenchmarks, loadDiagHistory])
 
   async function handleSwitchModel(name) {
     setSwitchingModel(true); setModelStatus(null)
@@ -70,6 +93,25 @@ export function useAdminPanel() {
       setModelStatus({ type: 'success', message: `Switched to ${data.active}` })
     } catch (err) { setModelStatus({ type: 'error', message: err.message }) }
     finally { setSwitchingModel(false) }
+  }
+
+  async function runBenchmark(model) {
+    setBenchmarkRunning(model)
+    setBenchmarkError(null)
+    try {
+      const res = await fetch(`${BACKEND}/admin/benchmark`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.detail ?? 'Benchmark failed')
+      setBenchmarks(prev => ({ ...prev, [model]: data }))
+    } catch (err) {
+      setBenchmarkError({ model, message: err.message })
+    } finally {
+      setBenchmarkRunning(null)
+    }
   }
 
   function handleDrop(e) {
@@ -133,11 +175,31 @@ export function useAdminPanel() {
     } catch (err) { console.error(err) }
   }
 
+  async function fetchSourceContent(name) {
+    const res = await fetch(`${BACKEND}/admin/sources/${encodeURIComponent(name)}/content`)
+    if (!res.ok) throw new Error('Failed to load content')
+    const data = await res.json()
+    return data.chunks ?? []
+  }
+
+  async function saveSourceContent(name, text) {
+    const res = await fetch(`${BACKEND}/admin/create`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ source_name: name, content: text }),
+    })
+    const data = await res.json()
+    if (!res.ok) throw new Error(data.detail ?? 'Failed to save')
+    return data.chunks
+  }
+
   return {
     uploadFile, setUploadFile, uploading, uploadStatus, dragOver, setDragOver, fileInputRef, handleDrop, handleUpload,
     sourceName, setSourceName, content, setContent, docType, setDocType, creating, createStatus, handleCreate,
     rulesContent, setRulesContent, savingRules, rulesStatus, handleSaveRules,
-    models, activeModel, switchingModel, modelStatus, handleSwitchModel,
-    sources, loadingSources, loadSources, deleteSource,
+    models, modelsDetailed, activeModel, switchingModel, modelStatus, handleSwitchModel,
+    sources, loadingSources, loadSources, deleteSource, fetchSourceContent, saveSourceContent,
+    benchmarks, benchmarkRunning, benchmarkError, runBenchmark,
+    diagHistory,
   }
 }

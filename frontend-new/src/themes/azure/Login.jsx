@@ -7,8 +7,13 @@ const MAX = 64
 const SERIF  = { fontFamily: "'Cormorant Garamond', Georgia, serif", fontWeight: 300 }
 const MONO_U = { fontFamily: "'Inter', system-ui, sans-serif", fontWeight: 200, letterSpacing: '5px', textTransform: 'uppercase' }
 
-const DARK  = { bg: 'linear-gradient(135deg, #070d1a 0%, #0c1829 100%)', card: 'rgba(59,130,246,0.07)', border: 'rgba(59,130,246,0.25)', text: '#e0eeff', muted: '#7099cc', accent: '#60a5fa', btnGrad: 'linear-gradient(135deg, #60a5fa, #1d4ed8)' }
-const LIGHT = { bg: 'linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)', card: 'rgba(59,130,246,0.07)', border: 'rgba(59,130,246,0.3)',  text: '#1e3a5f', muted: '#3b6cb0', accent: '#1d4ed8', btnGrad: 'linear-gradient(135deg, #60a5fa, #1d4ed8)' }
+const DARK  = { bg: 'linear-gradient(135deg, #0d1b35 0%, #162040 100%)', card: 'rgba(96,165,250,0.08)', border: 'rgba(96,165,250,0.3)', text: '#e8f0ff', muted: '#90b8f0', accent: '#60a5fa', btnGrad: 'linear-gradient(135deg, #60a5fa, #1d4ed8)' }
+const LIGHT = { bg: 'linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)', card: 'rgba(59,130,246,0.07)', border: 'rgba(59,130,246,0.3)', text: '#1e3a5f', muted: '#3b6cb0', accent: '#1d4ed8', btnGrad: 'linear-gradient(135deg, #60a5fa, #1d4ed8)' }
+
+const GLOWS = [
+  { top: '-10%', left: '20%',  size: '500px', color: 'rgba(59,130,246,0.12)', blur: '100px' },
+  { bottom: '-5%', right: '15%', size: '400px', color: 'rgba(99,102,241,0.10)', blur: '80px'  },
+]
 
 export default function Login() {
   const { login } = useAuth()
@@ -37,20 +42,25 @@ export default function Login() {
   }
 
   return (
-    <div style={{ background: c.bg, minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '40px', transition: 'background 0.3s' }}>
+    <div style={{ background: c.bg, minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '40px', transition: 'background 0.3s', position: 'relative', overflow: 'hidden' }}>
+
+      {mode === 'dark' && GLOWS.map((g, i) => (
+        <div key={i} style={{ position: 'absolute', borderRadius: '50%', background: g.color, filter: `blur(${g.blur})`, pointerEvents: 'none', width: g.size, height: g.size, top: g.top, bottom: g.bottom, left: g.left, right: g.right }} />
+      ))}
+
       <button onClick={() => setMode(m => { const next = m === 'dark' ? 'light' : 'dark'; localStorage.setItem('milo_mode', next); return next })}
-        style={{ position: 'fixed', top: '24px', right: '28px', background: 'none', border: `1px solid ${c.border}`, borderRadius: '4px', padding: '8px 18px', color: c.muted, fontSize: '13px', ...MONO_U, cursor: 'pointer' }}>
+        style={{ position: 'fixed', top: '24px', right: '28px', background: 'none', border: `1px solid ${c.border}`, borderRadius: '4px', padding: '8px 18px', color: c.muted, fontSize: '13px', ...MONO_U, cursor: 'pointer', zIndex: 10 }}>
         {mode === 'dark' ? 'Light' : 'Dark'}
       </button>
 
-      <div style={{ width: '100%', maxWidth: '380px' }}>
+      <div style={{ width: '100%', maxWidth: '380px', position: 'relative', zIndex: 1 }}>
         <div style={{ textAlign: 'center', marginBottom: '44px' }}>
-          <div style={{ display: 'inline-block', width: '48px', height: '48px', borderRadius: '50%', background: c.btnGrad, marginBottom: '20px' }} />
+          <div style={{ display: 'inline-block', width: '48px', height: '48px', borderRadius: '50%', background: c.btnGrad, marginBottom: '20px', boxShadow: mode === 'dark' ? '0 0 30px rgba(96,165,250,0.4)' : 'none' }} />
           <div style={{ ...MONO_U, fontSize: '20px', fontWeight: 100, letterSpacing: '10px', color: c.accent, marginBottom: '10px' }}>MILO</div>
           <div style={{ ...SERIF, fontSize: '18px', color: c.muted, fontStyle: 'italic' }}>Your intelligent assistant</div>
         </div>
 
-        <div style={{ background: c.card, border: `1px solid ${c.border}`, borderRadius: '16px', padding: '34px' }}>
+        <div style={{ background: c.card, border: `1px solid ${c.border}`, borderRadius: '16px', padding: '34px', backdropFilter: 'blur(10px)' }}>
           <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
             <div>
               <div style={{ ...SERIF, fontSize: '16px', color: c.muted, fontStyle: 'italic', marginBottom: '8px' }}>Username</div>
@@ -66,7 +76,7 @@ export default function Login() {
             </div>
             {error && <div style={{ ...SERIF, fontSize: '16px', color: '#f87171' }}>{error}</div>}
             <button type="submit" disabled={loading}
-              style={{ background: c.btnGrad, border: 'none', borderRadius: '10px', padding: '15px', color: '#fff', fontSize: '18px', ...SERIF, cursor: 'pointer', opacity: loading ? 0.7 : 1 }}>
+              style={{ background: c.btnGrad, border: 'none', borderRadius: '10px', padding: '15px', color: '#fff', fontSize: '18px', ...SERIF, cursor: 'pointer', opacity: loading ? 0.7 : 1, boxShadow: mode === 'dark' ? '0 4px 20px rgba(96,165,250,0.3)' : 'none' }}>
               {loading ? 'Signing in...' : 'Sign in'}
             </button>
           </form>
@@ -76,4 +86,3 @@ export default function Login() {
     </div>
   )
 }
-

@@ -28,3 +28,10 @@ chroma_db/
 # Node dependencies
 frontend-new/node_modules/
 frontend-new/.vite/
+
+# Runtime-generated backend state — never commit these
+backend/chats/
+backend/milo_metrics.json
+backend/milo_benchmarks.json
+backend/milo_model.txt
+backend/milo_provider.txt

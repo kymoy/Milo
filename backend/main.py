@@ -8,12 +8,18 @@ from pathlib import Path
 from collections import deque
 import psutil
 import requests
+try:
+    import boto3
+    from botocore.exceptions import BotoCoreError, ClientError
+    _BOTO3_AVAILABLE = True
+except ImportError:
+    _BOTO3_AVAILABLE = False
 from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, field_validator
 from typing import Literal
 from rag.retrieve import retrieve, build_context
-from rag.ingest import ingest_text, list_sources, delete_source
+from rag.ingest import ingest_text, list_sources, delete_source, get_source_chunks
 
 app = FastAPI(title="Milo")
 
@@ -29,13 +35,46 @@ OLLAMA_BASE_URL  = "http://localhost:11434"
 OLLAMA_MODEL_DEFAULT = "llama3.1:8b"
 HISTORY_LIMIT = 20
 
+BEDROCK_MODELS = [
+    {"id": "meta.llama3-8b-instruct-v1:0",    "label": "Llama 3 8B (Bedrock)"},
+    {"id": "meta.llama3-70b-instruct-v1:0",   "label": "Llama 3 70B (Bedrock)"},
+    {"id": "mistral.mistral-7b-instruct-v0:2","label": "Mistral 7B (Bedrock)"},
+    {"id": "anthropic.claude-3-haiku-20240307-v1:0",  "label": "Claude 3 Haiku (Bedrock)"},
+    {"id": "anthropic.claude-3-sonnet-20240229-v1:0", "label": "Claude 3 Sonnet (Bedrock)"},
+    {"id": "amazon.titan-text-express-v1",    "label": "Titan Text Express (Bedrock)"},
+]
+
 BASE_SYSTEM_PROMPT = "You are Milo, a helpful conversational assistant."
 
-CHATS_DIR    = Path(__file__).parent / "chats"
+CHATS_DIR        = Path(__file__).parent / "chats"
 CHATS_DIR.mkdir(exist_ok=True)
-RULES_PATH   = Path(__file__).parent / "milo_rules.md"
-MODEL_PATH   = Path(__file__).parent / "milo_model.txt"
-METRICS_PATH = Path(__file__).parent / "milo_metrics.json"
+RULES_PATH       = Path(__file__).parent / "milo_rules.md"
+MODEL_PATH       = Path(__file__).parent / "milo_model.txt"
+PROVIDER_PATH    = Path(__file__).parent / "milo_provider.txt"
+METRICS_PATH     = Path(__file__).parent / "milo_metrics.json"
+BENCHMARK_PATH   = Path(__file__).parent / "milo_benchmarks.json"
+
+BENCHMARK_SPEED_PROMPT = "Count from 1 to 30, putting each number on its own line. Do not add any other text."
+BENCHMARK_ACCURACY_PROMPTS = [
+    # Factual recall
+    {"q": "What year did World War II end? Reply with only the year.", "key": "1945"},
+    {"q": "What is the capital of France? Reply with only the city name.", "key": "Paris"},
+    {"q": "What gas do plants primarily absorb during photosynthesis? Reply with only the gas name.", "key": "carbon dioxide"},
+    # Arithmetic
+    {"q": "What is 7 multiplied by 8? Reply with only the number.", "key": "56"},
+    {"q": "What is 15% of 80? Reply with only the number.", "key": "12"},
+    {"q": "What is the square root of 169? Reply with only the number.", "key": "13"},
+    # Word problems
+    {"q": "A train travels at 60 mph for 2.5 hours. How many miles does it cover? Reply with only the number.", "key": "150"},
+    {"q": "A farmer has 17 sheep. All but 9 die. How many sheep are left? Reply with only the number.", "key": "9"},
+    {"q": "If it takes 5 machines 5 minutes to make 5 widgets, how long does it take 100 machines to make 100 widgets? Reply with only the number of minutes.", "key": "5"},
+    # Reasoning traps
+    {"q": "A bat and a ball cost $1.10 in total. The bat costs $1.00 more than the ball. How much does the ball cost in dollars? Reply with only the decimal number.", "key": "0.05"},
+    {"q": "What comes next in the sequence 2, 4, 8, 16? Reply with only the number.", "key": "32"},
+    # Logic
+    {"q": "All mammals are warm-blooded. Dolphins are mammals. Are dolphins warm-blooded? Reply with only yes or no.", "key": "yes"},
+    {"q": "If today is Wednesday and I have a meeting in 3 days, what day is the meeting? Reply with only the day name.", "key": "Saturday"},
+]
 
 
 def _load_metrics() -> list:
@@ -59,6 +98,48 @@ def _save_metrics() -> None:
 
 METRICS_HISTORY: deque = deque(_load_metrics(), maxlen=500)
 
+
+def _get_process_breakdown(total_mb: float) -> list[dict]:
+    procs: dict[str, float] = {}
+    for p in psutil.process_iter(['name', 'memory_info']):
+        try:
+            mb = p.info['memory_info'].rss / 1e6
+            if mb < 10:
+                continue
+            name = (p.info['name'] or 'unknown').lower().replace('.exe', '')
+            procs[name] = procs.get(name, 0) + mb
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            pass
+
+    # Keep top 7 by memory, bucket the rest into "other"
+    sorted_procs = sorted(procs.items(), key=lambda x: x[1], reverse=True)
+    top = sorted_procs[:7]
+    other_mb = sum(v for _, v in sorted_procs[7:])
+    accounted = sum(v for _, v in top) + other_mb
+    free_mb = max(total_mb - accounted, 0)
+
+    result = [{"name": name, "mb": round(mb, 1)} for name, mb in top]
+    if other_mb > 1:
+        result.append({"name": "other processes", "mb": round(other_mb, 1)})
+    result.append({"name": "free", "mb": round(free_mb, 1)})
+    return result
+
+
+def _load_benchmarks() -> dict:
+    if BENCHMARK_PATH.exists():
+        try:
+            return json.loads(BENCHMARK_PATH.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+    return {}
+
+
+def _save_benchmarks(data: dict) -> None:
+    try:
+        BENCHMARK_PATH.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    except Exception:
+        pass
+
 _active_model: str = (
     MODEL_PATH.read_text(encoding="utf-8").strip()
     if MODEL_PATH.exists() and MODEL_PATH.read_text(encoding="utf-8").strip()
@@ -74,6 +155,23 @@ def set_active_model(name: str) -> None:
     global _active_model
     _active_model = name
     MODEL_PATH.write_text(name, encoding="utf-8")
+
+
+_active_provider: str = (
+    PROVIDER_PATH.read_text(encoding="utf-8").strip()
+    if PROVIDER_PATH.exists() and PROVIDER_PATH.read_text(encoding="utf-8").strip() in ("ollama", "bedrock")
+    else "ollama"
+)
+
+
+def get_active_provider() -> str:
+    return _active_provider
+
+
+def set_active_provider(name: str) -> None:
+    global _active_provider
+    _active_provider = name
+    PROVIDER_PATH.write_text(name, encoding="utf-8")
 
 
 def load_rules() -> str:
@@ -249,6 +347,54 @@ def ask_ollama(messages: list[dict]) -> dict:
         return {"text": "CONNECTION_ERROR", "metrics": None}
 
 
+def ask_bedrock(messages: list[dict]) -> dict:
+    if not _BOTO3_AVAILABLE:
+        return {"text": "BEDROCK_ERROR:boto3 not installed — run: pip install boto3", "metrics": None}
+    psutil.cpu_percent(interval=None)
+    start = time.time()
+    try:
+        client = boto3.client("bedrock-runtime")
+        system_msgs = [m for m in messages if m["role"] == "system"]
+        convo_msgs  = [m for m in messages if m["role"] != "system"]
+        kwargs: dict = {
+            "modelId": get_active_model(),
+            "messages": [
+                {"role": m["role"], "content": [{"text": m["content"]}]}
+                for m in convo_msgs
+            ],
+        }
+        if system_msgs:
+            kwargs["system"] = [{"text": system_msgs[0]["content"]}]
+
+        resp = client.converse(**kwargs)
+        elapsed_ms = round((time.time() - start) * 1000)
+        cpu = round(psutil.cpu_percent(interval=None), 1)
+        text = resp["output"]["message"]["content"][0]["text"].strip()
+
+        sys_stats = get_system_stats()
+        metrics = {
+            "ts": time.time(),
+            "model": get_active_model(),
+            "response_ms": elapsed_ms,
+            "cpu_percent": cpu,
+            "tokens_per_sec": None,
+            **sys_stats,
+        }
+        METRICS_HISTORY.append(metrics)
+        _save_metrics()
+        return {"text": text, "metrics": metrics}
+    except (BotoCoreError, ClientError) as e:
+        return {"text": f"BEDROCK_ERROR:{e}", "metrics": None}
+    except Exception as e:
+        return {"text": f"BEDROCK_ERROR:{e}", "metrics": None}
+
+
+def ask_llm(messages: list[dict]) -> dict:
+    if get_active_provider() == "bedrock":
+        return ask_bedrock(messages)
+    return ask_ollama(messages)
+
+
 class RulesRequest(BaseModel):
     content: str
 
@@ -334,9 +480,125 @@ def admin_set_model(body: dict):
     return {"active": name}
 
 
+@app.get("/admin/provider")
+def admin_get_provider():
+    return {
+        "provider": get_active_provider(),
+        "bedrock_available": _BOTO3_AVAILABLE,
+        "bedrock_models": BEDROCK_MODELS,
+    }
+
+
+@app.post("/admin/provider")
+def admin_set_provider(body: dict):
+    provider = body.get("provider", "").strip()
+    if provider not in ("ollama", "bedrock"):
+        raise HTTPException(status_code=400, detail="provider must be 'ollama' or 'bedrock'.")
+    if provider == "bedrock" and not _BOTO3_AVAILABLE:
+        raise HTTPException(status_code=400, detail="boto3 is not installed. Run: pip install boto3")
+    set_active_provider(provider)
+    return {"provider": provider}
+
+
 @app.get("/admin/diagnostics")
 def admin_diagnostics():
     return {"current": get_system_stats(), "history": list(METRICS_HISTORY)}
+
+
+@app.get("/admin/benchmarks")
+def get_benchmarks():
+    return _load_benchmarks()
+
+
+@app.post("/admin/benchmark")
+def run_benchmark(body: dict):
+    model = body.get("model", "").strip()
+    if not model or not re.match(r'^[a-zA-Z0-9][a-zA-Z0-9.:_\-]{0,99}$', model):
+        raise HTTPException(status_code=400, detail="Invalid model name.")
+
+    try:
+        tags_res = requests.get(f"{OLLAMA_BASE_URL}/api/tags", timeout=5)
+        tags_res.raise_for_status()
+        installed = [m["name"] for m in tags_res.json().get("models", [])]
+    except Exception:
+        raise HTTPException(status_code=503, detail="Cannot connect to Ollama.")
+
+    if model not in installed:
+        raise HTTPException(status_code=404, detail=f"Model '{model}' is not installed.")
+
+    def _chat(prompt: str) -> dict | None:
+        try:
+            r = requests.post(
+                OLLAMA_CHAT_URL,
+                json={
+                    "model": model,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "stream": False,
+                    "keep_alive": "10m",
+                    "options": {"num_ctx": 4096},
+                },
+                timeout=300,
+            )
+            r.raise_for_status()
+            return r.json()
+        except Exception:
+            return None
+
+    # Speed + resource test
+    psutil.cpu_percent(interval=None)
+    _mem_before    = psutil.virtual_memory()
+    ram_before     = _mem_before.used / 1e6
+
+    start = time.time()
+    speed_data = _chat(BENCHMARK_SPEED_PROMPT)
+    elapsed_ms = round((time.time() - start) * 1000)
+
+    if speed_data is None:
+        raise HTTPException(status_code=500, detail="Benchmark request to Ollama failed.")
+
+    cpu_pct        = round(psutil.cpu_percent(interval=None), 1)
+    _mem_after     = psutil.virtual_memory()
+    ram_after      = _mem_after.used / 1e6
+    ram_delta_mb   = round(max(ram_after - ram_before, 0))
+    ram_percent    = round(_mem_after.percent, 1)
+    ram_before_mb  = round(ram_before)
+    ram_after_mb   = round(ram_after)
+    ram_total_mb   = round(_mem_after.total / 1e6)
+    process_breakdown = _get_process_breakdown(ram_total_mb)
+
+    eval_count = speed_data.get("eval_count", 0)
+    eval_ns    = speed_data.get("eval_duration", 0)
+    tokens_per_sec = round(eval_count / (eval_ns / 1e9), 1) if eval_ns > 0 else None
+
+    # Accuracy tests
+    correct = 0
+    for test in BENCHMARK_ACCURACY_PROMPTS:
+        data = _chat(test["q"])
+        if data:
+            answer = data.get("message", {}).get("content", "")
+            if test["key"].lower() in answer.lower():
+                correct += 1
+
+    result = {
+        "model": model,
+        "ts": time.time(),
+        "response_ms": elapsed_ms,
+        "tokens_per_sec": tokens_per_sec,
+        "cpu_percent": cpu_pct,
+        "ram_delta_mb": ram_delta_mb,
+        "ram_percent": ram_percent,
+        "ram_before_mb": ram_before_mb,
+        "ram_after_mb": ram_after_mb,
+        "ram_total_mb": ram_total_mb,
+        "process_breakdown": process_breakdown,
+        "accuracy": correct,
+        "accuracy_total": len(BENCHMARK_ACCURACY_PROMPTS),
+    }
+
+    data = _load_benchmarks()
+    data[model] = result
+    _save_benchmarks(data)
+    return result
 
 
 @app.get("/admin/rules")
@@ -370,6 +632,12 @@ async def admin_upload(file: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail="File must be UTF-8 encoded text.")
     source_name = re.sub(r'[^\w\-]', '_', file.filename.rsplit(".", 1)[0])
     chunks = ingest_text(text, source_name)
+    return {"source": source_name, "chunks": chunks}
+
+
+@app.get("/admin/sources/{source_name}/content")
+def admin_source_content(source_name: str):
+    chunks = get_source_chunks(source_name)
     return {"source": source_name, "chunks": chunks}
 
 
@@ -471,7 +739,10 @@ def chat(body: ChatMessage):
         system_base = BASE_SYSTEM_PROMPT + rules_note
 
     if body.use_library:
-        chunks = retrieve(body.message, n_results=3)
+        try:
+            chunks = retrieve(body.message, n_results=3)
+        except Exception:
+            chunks = []
         if chunks:
             context = build_context(chunks)
             system_content = (
@@ -492,7 +763,7 @@ def chat(body: ChatMessage):
 
     messages.append({"role": "user", "content": body.message})
 
-    result = ask_ollama(messages)
+    result = ask_llm(messages)
     answer = result["text"]
     metrics = result["metrics"]
 
@@ -500,5 +771,8 @@ def chat(body: ChatMessage):
         return {"reply": "Ollama is not reachable. Open a terminal and run: ollama serve", "metrics": None}
     if answer == "TIMEOUT_ERROR":
         return {"reply": "Milo is still thinking — the model took too long. Try again in a moment.", "metrics": None}
+    if isinstance(answer, str) and answer.startswith("BEDROCK_ERROR:"):
+        detail = answer.split(":", 1)[1]
+        return {"reply": f"AWS Bedrock error: {detail}", "metrics": None}
 
     return {"reply": answer, "metrics": metrics}
