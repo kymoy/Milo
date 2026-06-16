@@ -118,6 +118,31 @@ export default function DiagnosticsPanel({ c, activeModel: externalModel }) {
         )}
       </div>
 
+      {history.length >= 2 && (() => {
+        const rTimes = get('response_ms').filter(v => v != null).sort((a, b) => a - b)
+        const avg = rTimes.length ? Math.round(rTimes.reduce((a, b) => a + b, 0) / rTimes.length) : null
+        const p90 = rTimes.length > 1 ? rTimes[Math.floor(rTimes.length * 0.9)] : null
+        return (
+          <div style={{ display: 'flex', gap: '24px', padding: '10px 16px', background: `${c.accent}0a`, borderRadius: '8px', border: `1px solid ${c.border}`, flexWrap: 'wrap' }}>
+            {[
+              { label: 'min', value: rTimes[0] },
+              { label: 'avg', value: avg },
+              { label: 'max', value: rTimes[rTimes.length - 1] },
+              ...(p90 != null ? [{ label: 'p90', value: p90 }] : []),
+            ].map(({ label, value }) => (
+              <div key={label} style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                <span style={{ ...MONO_U, fontSize: '8px', color: c.muted }}>{label}</span>
+                <span style={{ ...MONO, fontSize: '18px', color: c.accent }}>{value != null ? (value / 1000).toFixed(2) : '—'}<span style={{ fontSize: '11px', color: c.muted, marginLeft: '2px' }}>s</span></span>
+              </div>
+            ))}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', marginLeft: 'auto' }}>
+              <span style={{ ...MONO_U, fontSize: '8px', color: c.muted }}>samples</span>
+              <span style={{ ...MONO, fontSize: '18px', color: c.muted }}>{rTimes.length}</span>
+            </div>
+          </div>
+        )
+      })()}
+
       <div style={{ display: 'grid', gridTemplateColumns: `repeat(${hasGpu ? 3 : 2}, 1fr)`, gap: '12px' }}>
         <StatCard label="Response time" unit="ms" current={latest('response_ms')} values={get('response_ms')} color={c.accent} max={10000} c={c} detail="Time from send to first token received" />
         <StatCard label="Tokens / sec" unit="tok/s" current={latest('tokens_per_sec')} values={get('tokens_per_sec')} color="#4ade80" c={c} detail="Generation speed — higher is faster" />

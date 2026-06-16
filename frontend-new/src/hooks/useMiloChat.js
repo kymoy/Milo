@@ -10,9 +10,11 @@ async function persistSession(sessionId, messages) {
   const toSave = messages.slice(1).map(({ role, text }) => ({ role, text }))
   if (toSave.length === 0) return
 
-  // Persist response times locally (backend only stores role+text)
+  // Persist response times and model names locally (backend only stores role+text)
   const timings = messages.slice(1).map(m => m.metrics?.response_ms ?? null)
+  const modelNames = messages.slice(1).map(m => m.metrics?.model ?? null)
   localStorage.setItem(`milo_timings_${sessionId}`, JSON.stringify(timings))
+  localStorage.setItem(`milo_models_${sessionId}`, JSON.stringify(modelNames))
 
   try {
     await fetch(`${BACKEND}/chats`, {
@@ -30,9 +32,12 @@ export function useMiloChat(greeting, useLibrary = true) {
     const pending = state?.pendingSession
     if (!pending) return [{ role: 'bot', text: greeting }]
     const timings = JSON.parse(localStorage.getItem(`milo_timings_${pending.id}`) || '[]')
+    const modelNames = JSON.parse(localStorage.getItem(`milo_models_${pending.id}`) || '[]')
     const withTimings = pending.messages.map((m, i) => {
       const ms = timings[i]
-      return ms != null ? { ...m, metrics: { response_ms: ms } } : m
+      const model = modelNames[i]
+      if (ms != null || model != null) return { ...m, metrics: { ...(ms != null ? { response_ms: ms } : {}), ...(model != null ? { model } : {}) } }
+      return m
     })
     return [{ role: 'bot', text: greeting }, ...withTimings]
   })
@@ -78,9 +83,12 @@ export function useMiloChat(greeting, useLibrary = true) {
 
   function loadSession(id, savedMessages) {
     const timings = JSON.parse(localStorage.getItem(`milo_timings_${id}`) || '[]')
+    const modelNames = JSON.parse(localStorage.getItem(`milo_models_${id}`) || '[]')
     const withTimings = savedMessages.map((m, i) => {
       const ms = timings[i]
-      return ms != null ? { ...m, metrics: { response_ms: ms } } : m
+      const model = modelNames[i]
+      if (ms != null || model != null) return { ...m, metrics: { ...(ms != null ? { response_ms: ms } : {}), ...(model != null ? { model } : {}) } }
+      return m
     })
     setSessionId(id)
     setMessages([{ role: 'bot', text: greeting }, ...withTimings])

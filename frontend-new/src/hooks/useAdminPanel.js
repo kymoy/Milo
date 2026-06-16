@@ -32,6 +32,16 @@ export function useAdminPanel() {
   const [benchmarkRunning, setBenchmarkRunning] = useState(null)
   const [benchmarkError, setBenchmarkError]   = useState(null)
   const [diagHistory, setDiagHistory]         = useState([])
+  const [diagCurrent, setDiagCurrent]         = useState(null)
+
+  const [activeProvider, setActiveProvider]     = useState('ollama')
+  const [claudeModels, setClaudeModels]         = useState([])
+  const [claudeKeySet, setClaudeKeySet]         = useState(false)
+  const [claudeKeyMasked, setClaudeKeyMasked]   = useState(null)
+  const [switchingProvider, setSwitchingProvider] = useState(false)
+  const [providerStatus, setProviderStatus]     = useState(null)
+  const [savingClaudeKey, setSavingClaudeKey]   = useState(false)
+  const [claudeKeyStatus, setClaudeKeyStatus]   = useState(null)
 
   const loadSources = useCallback(async () => {
     setLoadingSources(true)
@@ -74,10 +84,41 @@ export function useAdminPanel() {
       const res = await fetch(`${BACKEND}/admin/diagnostics`)
       const data = await res.json()
       setDiagHistory(data.history ?? [])
+      if (data.current) setDiagCurrent(data.current)
     } catch {}
   }, [])
 
-  useEffect(() => { loadSources(); loadRules(); loadModels(); loadBenchmarks(); loadDiagHistory() }, [loadSources, loadRules, loadModels, loadBenchmarks, loadDiagHistory])
+  const [ramBreakdown, setRamBreakdown] = useState(null)
+  const [ramSnapshots, setRamSnapshots] = useState({})
+
+  const loadRamBreakdown = useCallback(async () => {
+    try {
+      const res = await fetch(`${BACKEND}/admin/ram-breakdown`)
+      const data = await res.json()
+      setRamBreakdown(data)
+    } catch {}
+  }, [])
+
+  const loadRamSnapshots = useCallback(async () => {
+    try {
+      const res = await fetch(`${BACKEND}/admin/ram-snapshots`)
+      const data = await res.json()
+      setRamSnapshots(data ?? {})
+    } catch {}
+  }, [])
+
+  const loadProvider = useCallback(async () => {
+    try {
+      const res = await fetch(`${BACKEND}/admin/provider`)
+      const data = await res.json()
+      setActiveProvider(data.provider ?? 'ollama')
+      setClaudeModels(data.claude_models ?? [])
+      setClaudeKeySet(data.claude_key_set ?? false)
+      setClaudeKeyMasked(data.claude_key_masked ?? null)
+    } catch {}
+  }, [])
+
+  useEffect(() => { loadSources(); loadRules(); loadModels(); loadBenchmarks(); loadDiagHistory(); loadProvider(); loadRamBreakdown(); loadRamSnapshots() }, [loadSources, loadRules, loadModels, loadBenchmarks, loadDiagHistory, loadProvider, loadRamBreakdown, loadRamSnapshots])
 
   async function handleSwitchModel(name) {
     setSwitchingModel(true); setModelStatus(null)
@@ -182,6 +223,39 @@ export function useAdminPanel() {
     return data.chunks ?? []
   }
 
+  async function handleSwitchProvider(provider) {
+    setSwitchingProvider(true); setProviderStatus(null)
+    try {
+      const res = await fetch(`${BACKEND}/admin/provider`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provider }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.detail ?? 'Failed to switch provider')
+      setActiveProvider(data.provider)
+      setProviderStatus({ type: 'success', message: `Switched to ${data.provider}` })
+      if (data.provider === 'ollama') loadModels()
+    } catch (err) { setProviderStatus({ type: 'error', message: err.message }) }
+    finally { setSwitchingProvider(false) }
+  }
+
+  async function handleSaveClaudeKey(key) {
+    setSavingClaudeKey(true); setClaudeKeyStatus(null)
+    try {
+      const res = await fetch(`${BACKEND}/admin/claude-key`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.detail ?? 'Failed to save key')
+      setClaudeKeyStatus({ type: 'success', message: 'API key saved.' })
+      await loadProvider()
+    } catch (err) { setClaudeKeyStatus({ type: 'error', message: err.message }) }
+    finally { setSavingClaudeKey(false) }
+  }
+
   async function saveSourceContent(name, text) {
     const res = await fetch(`${BACKEND}/admin/create`, {
       method: 'POST',
@@ -200,6 +274,10 @@ export function useAdminPanel() {
     models, modelsDetailed, activeModel, switchingModel, modelStatus, handleSwitchModel,
     sources, loadingSources, loadSources, deleteSource, fetchSourceContent, saveSourceContent,
     benchmarks, benchmarkRunning, benchmarkError, runBenchmark,
-    diagHistory,
+    diagHistory, diagCurrent,
+    ramBreakdown, ramSnapshots,
+    activeProvider, claudeModels, claudeKeySet, claudeKeyMasked,
+    switchingProvider, providerStatus, handleSwitchProvider,
+    savingClaudeKey, claudeKeyStatus, handleSaveClaudeKey,
   }
 }

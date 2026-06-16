@@ -5,3 +5,6 @@ requests
 psutil
 chromadb
 boto3
+python-multipart
+anthropic
+python-dotenv

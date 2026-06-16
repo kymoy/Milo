@@ -1,5 +1,24 @@
 # Milo Updates
 
+## [2026-06-16] Claude API provider, model comparison improvements, RAM pie for all models
+
+### Added
+- **Claude API as a model provider**: Milo can now route LLM calls to Anthropic's Claude API instead of Ollama. Toggle via the Provider selector in Admin > Models. Supports `claude-haiku-4-5-20251001`, `claude-sonnet-4-6`, and `claude-opus-4-8`. Provider persists across restarts.
+- **Claude API key management UI**: Admin > Models shows a "Claude API" provider button. When selected, a key card appears with a password input (show/hide toggle) and a Save button. Key is stored at `~/.milo_claude_key` — outside OneDrive, never in git.
+- **Claude models in the comparison table**: All three Claude models appear in the Model Comparison table with cloud-specific metadata (VRAM: Cloud, Download: API, 200K context, 2025 knowledge cutoff). A "cloud" badge replaces the Run benchmark button.
+- **Response Time column**: The model comparison table now includes a measured Response Time column — shows avg seconds and the min–max range from real conversations with that model.
+- **RAM pie chart for all models**: The RAM breakdown donut now appears on hover for every model that has been used, not just benchmarked ones. Per-model RAM snapshots are captured automatically after every chat response and persisted to `milo_ram_snapshots.json`. Models with usage stats but no snapshot fall back to live system RAM breakdown. Claude models included.
+- **`claude` process color**: Added distinct pink color for the `claude` process in the RAM breakdown pie.
+
+### Removed
+- **Floating row-hover tooltip**: The stats tooltip on table row hover has been removed. Only the RAM breakdown donut chart hover remains.
+- **`start_milo.bat`**: Deleted — path handling with spaces caused errors. Use `start_milo.ps1` only.
+
+### Security
+- Claude API key stored at `C:\Users\<user>\.milo_claude_key` — outside the OneDrive-synced project folder, excluded from git.
+
+---
+
 ## [2026-06-12] AWS Bedrock provider, parent-child RAG chunking, benchmark integration, sidebar polish
 
 ### Added

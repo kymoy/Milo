@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import DiagnosticsPanel from './DiagnosticsPanel'
 
 const BACKEND = 'http://localhost:8000'
@@ -16,6 +16,9 @@ const RECOMMENDED = [
   { model: 'phi4:14b',             vram: '8–10 GB',  dl: '8.9 GB',  tps: '25–40',   ctx: '16K',  cut: 'early 2024', note: 'Noticeably better reasoning, needs 10 GB VRAM' },
   { model: 'llama3.3:70b-instruct-q4_K_M', vram: '35–42 GB', dl: '43 GB',   tps: '5–15',    ctx: '128K', cut: 'Dec 2023',   note: 'Near frontier-model quality, requires high-end GPU' },
   { model: 'gemma4:e4b',                   vram: '6–8 GB',   dl: '9.6 GB',  tps: '55–165',  ctx: '128K', cut: 'Jan 2025',   note: 'Multimodal (text + images), edge-optimized, fast with MTP' },
+  { model: 'claude-haiku-4-5-20251001', provider: 'claude', vram: 'Cloud', dl: 'API', tps: '~200', ctx: '200K', cut: '2025', note: 'Fastest and most affordable Claude model' },
+  { model: 'claude-sonnet-4-6',         provider: 'claude', vram: 'Cloud', dl: 'API', tps: '~80',  ctx: '200K', cut: '2025', note: 'Balanced performance and speed — best all-around Claude model', best: true },
+  { model: 'claude-opus-4-8',           provider: 'claude', vram: 'Cloud', dl: 'API', tps: '~30',  ctx: '200K', cut: '2025', note: 'Most capable Claude model — best for complex reasoning tasks' },
 ]
 
 const PROC_COLORS = {
@@ -32,6 +35,7 @@ const PROC_COLORS = {
   slack:             '#e879f9',
   teams:             '#60a5fa',
   discord:           '#818cf8',
+  claude:            '#f472b6',
   free:              '#1e293b',
   'other processes': '#334155',
 }
@@ -153,6 +157,10 @@ export default function AdminContent({ c, admin }) {
     models, modelsDetailed, activeModel, switchingModel, modelStatus, handleSwitchModel,
     sources, loadingSources, loadSources, deleteSource, fetchSourceContent, saveSourceContent,
     benchmarks, benchmarkRunning, benchmarkError, runBenchmark,
+    ramBreakdown, ramSnapshots,
+    activeProvider, claudeModels, claudeKeySet, claudeKeyMasked,
+    switchingProvider, providerStatus, handleSwitchProvider,
+    savingClaudeKey, claudeKeyStatus, handleSaveClaudeKey,
   } = admin
 
   const [viewingSource, setViewingSource] = useState(null)
@@ -200,15 +208,15 @@ export default function AdminContent({ c, admin }) {
     } finally { setSaving(false) }
   }
 
+  const [claudeKeyInput, setClaudeKeyInput] = useState('')
+  const [showClaudeKey, setShowClaudeKey]   = useState(false)
+
   const [pullInput, setPullInput] = useState('')
   const [copied, setCopied] = useState(false)
-  const [tooltipModel, setTooltipModel] = useState(null)
-  const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0 })
-  const tooltipRef = useRef(null)
   const [ramHoverModel, setRamHoverModel] = useState(null)
   const [ramHoverPos, setRamHoverPos] = useState({ x: 0, y: 0 })
 
-  const { diagHistory } = admin
+  const { diagHistory, diagCurrent } = admin
 
   function modelStats(modelName) {
     const rows = diagHistory.filter(h => h.model === modelName)
@@ -218,12 +226,19 @@ export default function AdminContent({ c, admin }) {
       return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null
     }
     const fmt = (v, dec = 1) => v != null ? v.toFixed(dec) : '—'
+    const rTimes = [...rows.map(r => r.response_ms).filter(v => v != null)].sort((a, b) => a - b)
+    const ramVals = rows.map(r => r.ram_percent).filter(v => v != null)
     return {
       requests: rows.length,
       response_ms: fmt(avg('response_ms'), 0),
+      response_min: rTimes.length ? rTimes[0] : null,
+      response_max: rTimes.length ? rTimes[rTimes.length - 1] : null,
+      response_p90: rTimes.length > 1 ? rTimes[Math.floor(rTimes.length * 0.9)] : (rTimes[0] ?? null),
       tokens_per_sec: fmt(avg('tokens_per_sec')),
       cpu_percent: fmt(avg('cpu_percent')),
       ram_percent: fmt(avg('ram_percent')),
+      ram_min: ramVals.length ? fmt(Math.min(...ramVals)) : null,
+      ram_max: ramVals.length ? fmt(Math.max(...ramVals)) : null,
       gpu_percent: avg('gpu_percent') != null ? fmt(avg('gpu_percent')) : null,
     }
   }
@@ -420,10 +435,79 @@ export default function AdminContent({ c, admin }) {
 
       {activeTab === 'models' && <>
 
+        {/* Provider selector */}
+        <div style={{ background: c.botBubble ?? c.input, border: `1px solid ${c.border}`, borderRadius: '12px', padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+          <div style={{ ...MONO_U, fontSize: '10px', color: c.muted }}>Provider</div>
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+            {[{ key: 'ollama', label: 'Ollama (local)' }, { key: 'claude', label: 'Claude API' }].map(p => {
+              const active = activeProvider === p.key
+              return (
+                <button key={p.key} onClick={() => handleSwitchProvider(p.key)} disabled={switchingProvider || active}
+                  style={{ ...SERIF, fontSize: '15px', padding: '9px 20px', borderRadius: '20px', cursor: active || switchingProvider ? 'default' : 'pointer', background: active ? c.accent : 'transparent', border: `1px solid ${active ? c.accent : c.border}`, color: active ? '#fff' : c.muted, transition: 'all 0.15s' }}>
+                  {p.label}
+                </button>
+              )
+            })}
+          </div>
+          {providerStatus && (
+            <div style={{ ...SERIF, fontSize: '13px', color: providerStatus.type === 'success' ? '#4ade80' : '#f87171' }}>{providerStatus.message}</div>
+          )}
+        </div>
+
+        {/* Claude API key card */}
+        {activeProvider === 'claude' && (
+          <div style={{ background: c.botBubble ?? c.input, border: `1px solid ${c.border}`, borderRadius: '12px', padding: '24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <div>
+              <div style={{ ...MONO_U, fontSize: '11px', color: c.accent, marginBottom: '6px' }}>Claude API Key</div>
+              <div style={{ ...SERIF, fontSize: '15px', color: c.text }}>
+                {claudeKeySet ? <>Key on file: <span style={{ ...MONO, fontSize: '13px', color: c.muted }}>{claudeKeyMasked}</span></> : 'No key saved yet — enter your Anthropic API key below.'}
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: '10px', alignItems: 'stretch' }}>
+              <div style={{ flex: 1, position: 'relative' }}>
+                <input
+                  type={showClaudeKey ? 'text' : 'password'}
+                  value={claudeKeyInput}
+                  onChange={e => setClaudeKeyInput(e.target.value)}
+                  placeholder="sk-ant-..."
+                  style={{ ...inputStyle, paddingRight: '48px' }}
+                  onFocus={e => e.target.style.borderColor = c.accent}
+                  onBlur={e => e.target.style.borderColor = c.border}
+                />
+                <button onClick={() => setShowClaudeKey(v => !v)}
+                  style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: c.muted, fontSize: '13px', padding: 0 }}>
+                  {showClaudeKey ? 'Hide' : 'Show'}
+                </button>
+              </div>
+              <button onClick={() => handleSaveClaudeKey(claudeKeyInput)} disabled={!claudeKeyInput.trim() || savingClaudeKey}
+                style={btnStyle(!claudeKeyInput.trim() || savingClaudeKey)}>
+                {savingClaudeKey ? 'Saving...' : 'Save key'}
+              </button>
+            </div>
+            {claudeKeyStatus && (
+              <div style={{ ...SERIF, fontSize: '13px', color: claudeKeyStatus.type === 'success' ? '#4ade80' : '#f87171' }}>{claudeKeyStatus.message}</div>
+            )}
+          </div>
+        )}
+
         {/* Model selector */}
         <div style={{ background: c.botBubble ?? c.input, border: `1px solid ${c.border}`, borderRadius: '12px', padding: '20px 24px', display: 'flex', alignItems: 'center', gap: '20px', flexWrap: 'wrap' }}>
           <div style={{ ...MONO_U, fontSize: '10px', color: c.muted, flexShrink: 0 }}>Active model</div>
-          {modelsDetailed.length === 0 ? (
+          {activeProvider === 'claude' ? (
+            <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
+              <select
+                value={activeModel || ''}
+                onChange={e => handleSwitchModel(e.target.value)}
+                disabled={switchingModel}
+                style={{ ...MONO, fontSize: '14px', background: c.input, border: `1px solid ${c.accent}`, borderRadius: '8px', padding: '9px 36px 9px 14px', color: c.accent, cursor: switchingModel ? 'wait' : 'pointer', outline: 'none', appearance: 'none', WebkitAppearance: 'none' }}
+              >
+                {claudeModels.map(m => (
+                  <option key={m.id} value={m.id} style={{ background: '#1a1a2e', color: c.text }}>{m.label}</option>
+                ))}
+              </select>
+              <span style={{ position: 'absolute', right: '12px', pointerEvents: 'none', color: c.accent, fontSize: '10px' }}>▾</span>
+            </div>
+          ) : modelsDetailed.length === 0 ? (
             <div style={{ ...SERIF, fontSize: '14px', color: c.muted, fontStyle: 'italic' }}>No models found — make sure Ollama is running.</div>
           ) : (
             <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
@@ -489,13 +573,14 @@ export default function AdminContent({ c, admin }) {
             <table style={{ width: '100%', borderCollapse: 'collapse', ...SERIF, fontSize: '14px' }}>
               <thead>
                 <tr>
-                  {['Model', 'VRAM', 'Download', '~Tok/s (GPU)', 'Context', 'Cutoff', 'Actual Tok/s', 'CPU %', 'RAM', 'Accuracy', '', 'Notes'].map(h => (
+                  {['Model', 'VRAM', 'Download', '~Tok/s (GPU)', 'Context', 'Cutoff', 'Actual Tok/s', 'CPU %', 'RAM', 'Accuracy', 'Response Time', '', 'Notes'].map(h => (
                     <th key={h} style={{ ...MONO_U, fontSize: '9px', color: c.muted, textAlign: 'left', padding: '6px 14px 10px 0', borderBottom: `1px solid ${c.border}`, whiteSpace: 'nowrap' }}>{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {RECOMMENDED.map(({ model, vram, dl, tps, ctx, cut, note, best }) => {
+                {RECOMMENDED.map(({ model, vram, dl, tps, ctx, cut, note, best, provider: modelProvider }) => {
+                  const isCloud      = modelProvider === 'claude'
                   const isCurrent    = model === activeModel
                   const stats        = modelStats(model)
                   const bm           = benchmarks[model]
@@ -505,21 +590,19 @@ export default function AdminContent({ c, admin }) {
                   const tdBase       = { padding: '10px 14px 10px 0', borderBottom: `1px solid ${c.border}`, whiteSpace: 'nowrap' }
                   return (
                     <tr key={model}
-                      style={{ background: isCurrent ? `${c.accent}0d` : best ? 'rgba(74,222,128,0.04)' : 'transparent' }}
-                      onMouseEnter={e => { if (stats) { setTooltipModel(model); setTooltipPos({ x: e.clientX, y: e.clientY }) } }}
-                      onMouseMove={e => { if (stats) setTooltipPos({ x: e.clientX, y: e.clientY }) }}
-                      onMouseLeave={() => setTooltipModel(null)}>
+                      style={{ background: isCurrent ? `${c.accent}0d` : best ? 'rgba(74,222,128,0.04)' : 'transparent' }}>
                       <td style={tdBase}>
                         <code style={{ ...MONO, fontSize: '13px', color: isCurrent ? c.accent : best ? '#4ade80' : c.text }}>{model}</code>
                         {isCurrent && <span style={{ ...MONO_U, fontSize: '8px', color: c.accent, marginLeft: '8px' }}>active</span>}
                         {best && !isCurrent && <span style={{ ...MONO_U, fontSize: '8px', color: '#4ade80', marginLeft: '8px' }}>recommended</span>}
+                        {isCloud && !isCurrent && <span style={{ ...MONO_U, fontSize: '8px', color: '#818cf8', marginLeft: '8px' }}>claude api</span>}
                         {stats && <span style={{ ...MONO_U, fontSize: '8px', color: c.muted, marginLeft: '8px' }}>{stats.requests} req</span>}
                       </td>
-                      <td style={{ ...tdBase, color: c.text }}>{vram}</td>
-                      <td style={{ ...tdBase, color: c.text }}>{dl}</td>
+                      <td style={{ ...tdBase, color: isCloud ? '#818cf8' : c.text, fontStyle: isCloud ? 'italic' : 'normal' }}>{vram}</td>
+                      <td style={{ ...tdBase, color: isCloud ? c.muted : c.text }}>{dl}</td>
                       <td style={{ ...tdBase, color: c.text }}>{tps}</td>
                       <td style={{ ...tdBase, color: c.text }}>{ctx}</td>
-                      <td style={{ ...tdBase, color: cut.includes('2024') ? '#4ade80' : c.muted }}>{cut}</td>
+                      <td style={{ ...tdBase, color: (cut.includes('2024') || cut.includes('2025')) ? '#4ade80' : c.muted }}>{cut}</td>
 
                       {/* Measured tok/s */}
                       <td style={{ ...tdBase, color: bm ? '#4ade80' : c.muted }}>
@@ -527,28 +610,56 @@ export default function AdminContent({ c, admin }) {
                       </td>
 
                       {/* Measured CPU */}
-                      <td style={{ ...tdBase, color: bm ? c.text : c.muted }}>
-                        {bm ? `${bm.cpu_percent}%` : '—'}
+                      <td style={{ ...tdBase, color: (bm || stats) ? c.text : c.muted }}>
+                        {bm ? `${bm.cpu_percent}%` : stats ? `${stats.cpu_percent}%` : '—'}
                       </td>
 
-                      {/* Measured RAM — hover for pie breakdown */}
-                      <td
-                        style={{ ...tdBase, color: bm ? c.text : c.muted, cursor: bm?.ram_total_mb ? 'default' : 'default' }}
-                        onMouseEnter={e => { if (bm) { setRamHoverModel(model); setRamHoverPos({ x: e.clientX, y: e.clientY }) } }}
-                        onMouseMove={e => { if (bm) setRamHoverPos({ x: e.clientX, y: e.clientY }) }}
-                        onMouseLeave={() => setRamHoverModel(null)}
-                      >
-                        {bm ? `${bm.ram_percent}% (${bm.ram_delta_mb > 0 ? `+${bm.ram_delta_mb}MB` : '~0MB'})` : '—'}
-                      </td>
+                      {/* Measured RAM */}
+                      {(() => {
+                        const snap = ramSnapshots?.[model]
+                        const hasHover = !!(bm || snap || (stats && ramBreakdown))
+                        return (
+                          <td
+                            style={{ ...tdBase, color: (bm || stats) ? c.text : c.muted, cursor: hasHover ? 'crosshair' : 'default' }}
+                            onMouseEnter={e => { if (hasHover) { setRamHoverModel(model); setRamHoverPos({ x: e.clientX, y: e.clientY }) } }}
+                            onMouseMove={e => { if (hasHover) setRamHoverPos({ x: e.clientX, y: e.clientY }) }}
+                            onMouseLeave={() => setRamHoverModel(null)}
+                          >
+                            {bm ? `${bm.ram_percent}% (+${bm.ram_delta_mb}MB)` : stats ? `${stats.ram_percent}%` : '—'}
+                          </td>
+                        )
+                      })()}
 
                       {/* Accuracy */}
                       <td style={{ ...tdBase, color: bm ? (bm.accuracy === bm.accuracy_total ? '#4ade80' : bm.accuracy > 0 ? '#fbbf24' : '#f87171') : c.muted }}>
                         {bm ? `${bm.accuracy}/${bm.accuracy_total}` : '—'}
                       </td>
 
+                      {/* Response time diagnostics */}
+                      <td style={{ ...tdBase }}>
+                        {stats ? (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                            <span style={{ ...MONO, fontSize: '12px', color: c.text }}>{(Number(stats.response_ms) / 1000).toFixed(2)}s avg</span>
+                            <span style={{ ...MONO, fontSize: '11px', color: c.muted }}>
+                              {stats.response_min != null ? `${(stats.response_min / 1000).toFixed(2)}s` : '—'} min · {stats.response_max != null ? `${(stats.response_max / 1000).toFixed(2)}s` : '—'} max
+                            </span>
+                            {stats.response_p90 != null && stats.requests >= 3 && (
+                              <span style={{ ...MONO, fontSize: '10px', color: c.muted, opacity: 0.7 }}>p90 {(stats.response_p90 / 1000).toFixed(2)}s · {stats.requests} req</span>
+                            )}
+                            {stats.requests < 3 && (
+                              <span style={{ ...MONO, fontSize: '10px', color: c.muted, opacity: 0.7 }}>{stats.requests} req</span>
+                            )}
+                          </div>
+                        ) : (
+                          <span style={{ color: c.muted }}>—</span>
+                        )}
+                      </td>
+
                       {/* Run button */}
                       <td style={{ ...tdBase }}>
-                        {!isInstalled ? (
+                        {isCloud ? (
+                          <span style={{ ...MONO_U, fontSize: '8px', color: '#818cf8' }}>cloud</span>
+                        ) : !isInstalled ? (
                           <span style={{ ...MONO_U, fontSize: '8px', color: c.muted }}>not installed</span>
                         ) : isRunning ? (
                           <span style={{ ...MONO_U, fontSize: '8px', color: c.accent }}>running…</span>
@@ -606,51 +717,25 @@ export default function AdminContent({ c, admin }) {
 
       </>}
 
-      {/* Model stats tooltip */}
-      {tooltipModel && (() => {
-        const stats = modelStats(tooltipModel)
-        if (!stats) return null
+
+      {/* RAM pie tooltip */}
+      {ramHoverModel && (() => {
+        const bm = benchmarks[ramHoverModel]
+        const snap = ramSnapshots?.[ramHoverModel]
+        const source = bm ?? snap ?? ramBreakdown
+        if (!source) return null
         return (
-          <div ref={tooltipRef} style={{
-            position: 'fixed', left: tooltipPos.x + 16, top: tooltipPos.y - 8,
+          <div style={{
+            position: 'fixed', left: ramHoverPos.x + 16, top: ramHoverPos.y - 60,
             background: c.sidebar ?? '#1a1a2e', border: `1px solid ${c.border}`,
-            borderRadius: '10px', padding: '12px 16px', zIndex: 2000,
-            display: 'flex', flexDirection: 'column', gap: '6px',
-            pointerEvents: 'none', minWidth: '200px',
-            boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
+            borderRadius: '10px', padding: '14px 16px', zIndex: 2000,
+            pointerEvents: 'none', boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
           }}>
-            <div style={{ ...MONO_U, fontSize: '9px', color: c.accent, marginBottom: '2px' }}>{tooltipModel}</div>
-            {[
-              { label: 'Avg response', value: stats.response_ms, unit: 'ms' },
-              { label: 'Avg tok/s', value: stats.tokens_per_sec, unit: 'tok/s' },
-              { label: 'Avg CPU', value: stats.cpu_percent, unit: '%' },
-              { label: 'Avg RAM', value: stats.ram_percent, unit: '%' },
-              ...(stats.gpu_percent != null ? [{ label: 'Avg GPU', value: stats.gpu_percent, unit: '%' }] : []),
-            ].map(({ label, value, unit }) => (
-              <div key={label} style={{ display: 'flex', justifyContent: 'space-between', gap: '20px' }}>
-                <span style={{ ...SERIF, fontSize: '13px', color: c.muted }}>{label}</span>
-                <span style={{ ...MONO, fontSize: '13px', color: c.text }}>{value} <span style={{ color: c.muted }}>{unit}</span></span>
-              </div>
-            ))}
-            <div style={{ ...SERIF, fontSize: '11px', color: c.muted, fontStyle: 'italic', marginTop: '2px', borderTop: `1px solid ${c.border}`, paddingTop: '6px' }}>
-              Based on {stats.requests} request{stats.requests !== 1 ? 's' : ''}
-            </div>
+            <div style={{ ...MONO_U, fontSize: '9px', color: c.accent, marginBottom: '10px' }}>RAM breakdown</div>
+            <RamDonut bm={source} c={c} />
           </div>
         )
       })()}
-
-      {/* RAM pie tooltip */}
-      {ramHoverModel && benchmarks[ramHoverModel] && (
-        <div style={{
-          position: 'fixed', left: ramHoverPos.x + 16, top: ramHoverPos.y - 60,
-          background: c.sidebar ?? '#1a1a2e', border: `1px solid ${c.border}`,
-          borderRadius: '10px', padding: '14px 16px', zIndex: 2000,
-          pointerEvents: 'none', boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
-        }}>
-          <div style={{ ...MONO_U, fontSize: '9px', color: c.accent, marginBottom: '10px' }}>RAM breakdown</div>
-          <RamDonut bm={benchmarks[ramHoverModel]} c={c} />
-        </div>
-      )}
 
       {/* Source content modal */}
       {viewingSource && (

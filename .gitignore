@@ -35,3 +35,11 @@ backend/milo_metrics.json
 backend/milo_benchmarks.json
 backend/milo_model.txt
 backend/milo_provider.txt
+backend/milo_ram_snapshots.json
+
+# API key files — never commit these
+backend/milo_claude_key.txt
+*.milo_*_key*
+
+# Windows shortcut files
+*.lnk

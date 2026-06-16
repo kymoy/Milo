@@ -1,3 +1,4 @@
+import os
 import re
 import json
 import uuid
@@ -14,6 +15,12 @@ try:
     _BOTO3_AVAILABLE = True
 except ImportError:
     _BOTO3_AVAILABLE = False
+
+try:
+    import anthropic as _anthropic_sdk
+    _ANTHROPIC_AVAILABLE = True
+except Exception:
+    _ANTHROPIC_AVAILABLE = False
 from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, field_validator
@@ -44,6 +51,12 @@ BEDROCK_MODELS = [
     {"id": "amazon.titan-text-express-v1",    "label": "Titan Text Express (Bedrock)"},
 ]
 
+CLAUDE_MODELS = [
+    {"id": "claude-opus-4-8",           "label": "Claude Opus 4.8"},
+    {"id": "claude-sonnet-4-6",         "label": "Claude Sonnet 4.6"},
+    {"id": "claude-haiku-4-5-20251001", "label": "Claude Haiku 4.5"},
+]
+
 BASE_SYSTEM_PROMPT = "You are Milo, a helpful conversational assistant."
 
 CHATS_DIR        = Path(__file__).parent / "chats"
@@ -53,6 +66,7 @@ MODEL_PATH       = Path(__file__).parent / "milo_model.txt"
 PROVIDER_PATH    = Path(__file__).parent / "milo_provider.txt"
 METRICS_PATH     = Path(__file__).parent / "milo_metrics.json"
 BENCHMARK_PATH   = Path(__file__).parent / "milo_benchmarks.json"
+RAM_SNAPSHOTS_PATH = Path(__file__).parent / "milo_ram_snapshots.json"
 
 BENCHMARK_SPEED_PROMPT = "Count from 1 to 30, putting each number on its own line. Do not add any other text."
 BENCHMARK_ACCURACY_PROMPTS = [
@@ -97,6 +111,23 @@ def _save_metrics() -> None:
 
 
 METRICS_HISTORY: deque = deque(_load_metrics(), maxlen=500)
+
+_ram_snapshots: dict = (
+    json.loads(RAM_SNAPSHOTS_PATH.read_text(encoding="utf-8"))
+    if RAM_SNAPSHOTS_PATH.exists() else {}
+)
+
+def _capture_ram_snapshot(model: str) -> None:
+    mem = psutil.virtual_memory()
+    total_mb = round(mem.total / 1e6)
+    _ram_snapshots[model] = {
+        "ram_total_mb": total_mb,
+        "process_breakdown": _get_process_breakdown(total_mb),
+    }
+    try:
+        RAM_SNAPSHOTS_PATH.write_text(json.dumps(_ram_snapshots, indent=2), encoding="utf-8")
+    except Exception:
+        pass
 
 
 def _get_process_breakdown(total_mb: float) -> list[dict]:
@@ -159,7 +190,7 @@ def set_active_model(name: str) -> None:
 
 _active_provider: str = (
     PROVIDER_PATH.read_text(encoding="utf-8").strip()
-    if PROVIDER_PATH.exists() and PROVIDER_PATH.read_text(encoding="utf-8").strip() in ("ollama", "bedrock")
+    if PROVIDER_PATH.exists() and PROVIDER_PATH.read_text(encoding="utf-8").strip() in ("ollama", "bedrock", "claude")
     else "ollama"
 )
 
@@ -178,6 +209,18 @@ def load_rules() -> str:
     if RULES_PATH.exists():
         return RULES_PATH.read_text(encoding="utf-8").strip()
     return ""
+
+
+LOCAL_KEY_PATH = Path.home() / ".milo_claude_key"
+
+def get_claude_api_key() -> str:
+    if LOCAL_KEY_PATH.exists():
+        return LOCAL_KEY_PATH.read_text(encoding="utf-8").strip()
+    return os.environ.get("ANTHROPIC_API_KEY", "")
+
+
+def set_claude_api_key(key: str) -> None:
+    LOCAL_KEY_PATH.write_text(key.strip(), encoding="utf-8")
 
 STYLE_PATTERN = re.compile(
     r"(?:talk|speak|say\s+it|respond|answer|write|reply)\s+(?:\w+\s+){0,3}(?:like|as)\s+(?:a\s+|an\s+)?(\w[\w\s]{0,30})",
@@ -334,6 +377,7 @@ def ask_ollama(messages: list[dict]) -> dict:
         }
         METRICS_HISTORY.append(metrics)
         _save_metrics()
+        _capture_ram_snapshot(get_active_model())
 
         return {
             "text": data.get("message", {}).get("content", "").strip(),
@@ -382,6 +426,7 @@ def ask_bedrock(messages: list[dict]) -> dict:
         }
         METRICS_HISTORY.append(metrics)
         _save_metrics()
+        _capture_ram_snapshot(get_active_model())
         return {"text": text, "metrics": metrics}
     except (BotoCoreError, ClientError) as e:
         return {"text": f"BEDROCK_ERROR:{e}", "metrics": None}
@@ -389,9 +434,57 @@ def ask_bedrock(messages: list[dict]) -> dict:
         return {"text": f"BEDROCK_ERROR:{e}", "metrics": None}
 
 
+def ask_claude(messages: list[dict]) -> dict:
+    if not _ANTHROPIC_AVAILABLE:
+        return {"text": "CLAUDE_ERROR:anthropic package not installed — run: pip install anthropic", "metrics": None}
+    api_key = get_claude_api_key()
+    if not api_key:
+        return {"text": "CLAUDE_ERROR:No API key configured. Go to Admin > Models to add your key.", "metrics": None}
+    psutil.cpu_percent(interval=None)
+    start = time.time()
+    try:
+        client = _anthropic_sdk.Anthropic(api_key=api_key)
+        system_msgs = [m for m in messages if m["role"] == "system"]
+        convo_msgs  = [m for m in messages if m["role"] != "system"]
+        kwargs: dict = {
+            "model": get_active_model(),
+            "max_tokens": 4096,
+            "messages": [{"role": m["role"], "content": m["content"]} for m in convo_msgs],
+        }
+        if system_msgs:
+            kwargs["system"] = system_msgs[0]["content"]
+        resp = client.messages.create(**kwargs)
+        elapsed_ms = round((time.time() - start) * 1000)
+        cpu = round(psutil.cpu_percent(interval=None), 1)
+        text = resp.content[0].text.strip()
+        output_tokens = resp.usage.output_tokens if resp.usage else 0
+        tokens_per_sec = round(output_tokens / (elapsed_ms / 1000), 1) if elapsed_ms > 0 and output_tokens > 0 else None
+        sys_stats = get_system_stats()
+        metrics = {
+            "ts": time.time(),
+            "model": get_active_model(),
+            "response_ms": elapsed_ms,
+            "cpu_percent": cpu,
+            "tokens_per_sec": tokens_per_sec,
+            **sys_stats,
+        }
+        METRICS_HISTORY.append(metrics)
+        _save_metrics()
+        _capture_ram_snapshot(get_active_model())
+        return {"text": text, "metrics": metrics}
+    except _anthropic_sdk.AuthenticationError:
+        return {"text": "CLAUDE_ERROR:Invalid API key. Check your key in Admin > Models.", "metrics": None}
+    except _anthropic_sdk.RateLimitError:
+        return {"text": "CLAUDE_ERROR:Rate limit reached. Try again in a moment.", "metrics": None}
+    except Exception as e:
+        return {"text": f"CLAUDE_ERROR:{e}", "metrics": None}
+
+
 def ask_llm(messages: list[dict]) -> dict:
     if get_active_provider() == "bedrock":
         return ask_bedrock(messages)
+    if get_active_provider() == "claude":
+        return ask_claude(messages)
     return ask_ollama(messages)
 
 
@@ -482,27 +575,74 @@ def admin_set_model(body: dict):
 
 @app.get("/admin/provider")
 def admin_get_provider():
+    key = get_claude_api_key()
+    masked = (key[:8] + "..." + key[-4:]) if len(key) > 12 else ("***" if key else None)
     return {
         "provider": get_active_provider(),
         "bedrock_available": _BOTO3_AVAILABLE,
         "bedrock_models": BEDROCK_MODELS,
+        "claude_available": _ANTHROPIC_AVAILABLE,
+        "claude_key_set": bool(key),
+        "claude_key_masked": masked,
+        "claude_models": CLAUDE_MODELS,
     }
 
 
 @app.post("/admin/provider")
 def admin_set_provider(body: dict):
     provider = body.get("provider", "").strip()
-    if provider not in ("ollama", "bedrock"):
-        raise HTTPException(status_code=400, detail="provider must be 'ollama' or 'bedrock'.")
+    if provider not in ("ollama", "bedrock", "claude"):
+        raise HTTPException(status_code=400, detail="provider must be 'ollama', 'bedrock', or 'claude'.")
     if provider == "bedrock" and not _BOTO3_AVAILABLE:
         raise HTTPException(status_code=400, detail="boto3 is not installed. Run: pip install boto3")
+    if provider == "claude" and not _ANTHROPIC_AVAILABLE:
+        raise HTTPException(status_code=400, detail="anthropic package not installed. Run: pip install anthropic")
+    if provider == "claude" and not get_claude_api_key():
+        raise HTTPException(status_code=400, detail="No API key set. Add your Claude API key first.")
     set_active_provider(provider)
     return {"provider": provider}
 
 
+@app.get("/admin/claude-key")
+def admin_get_claude_key():
+    key = get_claude_api_key()
+    if key:
+        masked = (key[:8] + "..." + key[-4:]) if len(key) > 12 else "***"
+        return {"key_set": True, "masked": masked}
+    return {"key_set": False, "masked": None}
+
+
+@app.post("/admin/claude-key")
+def admin_set_claude_key(body: dict):
+    key = body.get("key", "").strip()
+    if not key:
+        raise HTTPException(status_code=400, detail="API key cannot be empty.")
+    if len(key) > 300:
+        raise HTTPException(status_code=400, detail="API key too long.")
+    if not re.match(r'^sk-ant-[A-Za-z0-9\-_]+$', key):
+        raise HTTPException(status_code=400, detail="Doesn't look like a valid Anthropic API key (should start with sk-ant-).")
+    set_claude_api_key(key)
+    return {"saved": True}
+
+
 @app.get("/admin/diagnostics")
 def admin_diagnostics():
-    return {"current": get_system_stats(), "history": list(METRICS_HISTORY)}
+    stats = get_system_stats()
+    total_mb = round(stats.get("ram_total_gb", 0) * 1000)
+    breakdown = _get_process_breakdown(total_mb) if total_mb > 0 else []
+    return {"current": {**stats, "process_breakdown": breakdown}, "history": list(METRICS_HISTORY)}
+
+
+@app.get("/admin/ram-breakdown")
+def admin_ram_breakdown():
+    mem = psutil.virtual_memory()
+    total_mb = round(mem.total / 1e6)
+    return {"ram_total_mb": total_mb, "process_breakdown": _get_process_breakdown(total_mb)}
+
+
+@app.get("/admin/ram-snapshots")
+def admin_ram_snapshots():
+    return _ram_snapshots
 
 
 @app.get("/admin/benchmarks")
@@ -774,5 +914,8 @@ def chat(body: ChatMessage):
     if isinstance(answer, str) and answer.startswith("BEDROCK_ERROR:"):
         detail = answer.split(":", 1)[1]
         return {"reply": f"AWS Bedrock error: {detail}", "metrics": None}
+    if isinstance(answer, str) and answer.startswith("CLAUDE_ERROR:"):
+        detail = answer.split(":", 1)[1]
+        return {"reply": f"Claude API error: {detail}", "metrics": None}
 
     return {"reply": answer, "metrics": metrics}

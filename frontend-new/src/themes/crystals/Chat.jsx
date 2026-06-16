@@ -44,18 +44,31 @@ export default function Chat() {
         </header>
 
         <div style={{ flex: 1, overflowY: 'auto', padding: '40px 32px', display: 'flex', flexDirection: 'column', gap: '24px' }}>
-          {messages.map((m, i) => (
-            <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: m.role === 'user' ? 'flex-end' : 'flex-start' }}>
-              <div style={{ maxWidth: '65%', fontSize: '14px', lineHeight: 1.7, fontFamily: 'system-ui', color: m.role === 'user' ? c.bg : c.botText, background: m.role === 'user' ? c.accent : c.botBubble, border: m.role === 'bot' ? `1px solid ${c.border}` : 'none', padding: '14px 18px', borderRadius: '2px' }}>
-                {m.role === 'user' ? m.text : <MiloMarkdown>{m.text}</MiloMarkdown>}
-              </div>
-              {m.role === 'bot' && m.metrics && (
-                <div style={{ fontSize: '11px', color: c.muted, marginTop: '4px', fontFamily: 'monospace' }}>
-                  {[`${(m.metrics.response_ms / 1000).toFixed(1)}s`, m.metrics.cpu_percent != null && `CPU ${m.metrics.cpu_percent}%`, m.metrics.tokens_per_sec != null && `${m.metrics.tokens_per_sec} tok/s`, m.metrics.gpu_percent != null && `GPU ${m.metrics.gpu_percent}%`].filter(Boolean).join(' · ')}
+          {messages.map((m, i) => {
+            const prevBot = messages.slice(0, i).reverse().find(msg => msg.role === 'bot' && msg.metrics?.model)
+            const modelChanged = m.role === 'bot' && m.metrics?.model && prevBot?.metrics?.model && m.metrics.model !== prevBot.metrics.model
+            return (
+              <div key={i}>
+                {modelChanged && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', margin: '4px 0 8px', opacity: 0.55 }}>
+                    <div style={{ flex: 1, height: '1px', background: c.border }} />
+                    <span style={{ fontSize: '10px', color: c.muted, fontFamily: 'monospace', letterSpacing: '0.5px' }}>↺ {m.metrics.model}</span>
+                    <div style={{ flex: 1, height: '1px', background: c.border }} />
+                  </div>
+                )}
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: m.role === 'user' ? 'flex-end' : 'flex-start' }}>
+                  <div style={{ maxWidth: '65%', fontSize: '14px', lineHeight: 1.7, fontFamily: 'system-ui', color: m.role === 'user' ? c.bg : c.botText, background: m.role === 'user' ? c.accent : c.botBubble, border: m.role === 'bot' ? `1px solid ${c.border}` : 'none', padding: '14px 18px', borderRadius: '2px' }}>
+                    {m.role === 'user' ? m.text : <MiloMarkdown>{m.text}</MiloMarkdown>}
+                  </div>
+                  {m.role === 'bot' && m.metrics && (
+                    <div style={{ fontSize: '11px', color: c.muted, marginTop: '4px', fontFamily: 'monospace' }}>
+                      {[m.metrics.model, m.metrics.response_ms != null && `${(m.metrics.response_ms / 1000).toFixed(1)}s`, m.metrics.cpu_percent != null && `CPU ${m.metrics.cpu_percent}%`, m.metrics.tokens_per_sec != null && `${m.metrics.tokens_per_sec} tok/s`, m.metrics.gpu_percent != null && `GPU ${m.metrics.gpu_percent}%`].filter(Boolean).join(' · ')}
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
-          ))}
+              </div>
+            )
+          })}
           {loading && <div style={{ ...MONO_U, fontSize: '10px', color: c.muted, letterSpacing: '3px' }}>Processing...</div>}
           <div ref={bottomRef} />
         </div>
