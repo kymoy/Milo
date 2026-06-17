@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useLocation } from 'react-router-dom'
-import { sendMessage } from '../utils/chat'
+import { streamMessage } from '../utils/chat'
 
 const BACKEND = 'http://localhost:8000'
 const MAX_LENGTH = 2000
@@ -43,6 +43,15 @@ export function useMiloChat(greeting, useLibrary = true) {
   })
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
+  const [status, setStatus] = useState(null)
+
+  // Keep model warm — ping every 4 minutes so the first response after idle stays fast
+  useEffect(() => {
+    const ping = () => fetch(`${BACKEND}/warmup`, { method: 'POST' }).catch(() => {})
+    ping()
+    const id = setInterval(ping, 4 * 60 * 1000)
+    return () => clearInterval(id)
+  }, [])
 
   async function send() {
     const text = input.trim()
@@ -67,13 +76,31 @@ export function useMiloChat(greeting, useLibrary = true) {
     setMessages(withUser)
     setInput('')
     setLoading(true)
+    setStatus(null)
 
-    const { reply, metrics } = await sendMessage(text, useLibrary, history)
-    const final = [...withUser, { role: 'bot', text: reply, metrics }]
-    setMessages(final)
-    setLoading(false)
+    let accumulated = ''
 
-    persistSession(sid, final)
+    await streamMessage(text, useLibrary, history, {
+      onStatus: (msg) => setStatus(msg),
+      onToken: (token) => {
+        accumulated += token
+        setStatus(null)
+        setMessages([...withUser, { role: 'bot', text: accumulated, streaming: true }])
+      },
+      onDone: (metrics) => {
+        const final = [...withUser, { role: 'bot', text: accumulated || '(no response)', metrics }]
+        setMessages(final)
+        setLoading(false)
+        setStatus(null)
+        persistSession(sid, final)
+      },
+      onError: (msg) => {
+        const final = [...withUser, { role: 'bot', text: msg, metrics: null }]
+        setMessages(final)
+        setLoading(false)
+        setStatus(null)
+      },
+    })
   }
 
   function resetChat() {
@@ -94,5 +121,5 @@ export function useMiloChat(greeting, useLibrary = true) {
     setMessages([{ role: 'bot', text: greeting }, ...withTimings])
   }
 
-  return { messages, input, setInput, loading, send, resetChat, sessionId, loadSession }
+  return { messages, input, setInput, loading, status, send, resetChat, sessionId, loadSession }
 }

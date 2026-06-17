@@ -107,6 +107,10 @@ export function useAdminPanel() {
     } catch {}
   }, [])
 
+  const [activeClaudeModel, setActiveClaudeModel] = useState('claude-sonnet-4-6')
+  const [switchingClaudeModel, setSwitchingClaudeModel] = useState(false)
+  const [claudeModelStatus, setClaudeModelStatus] = useState(null)
+
   const loadProvider = useCallback(async () => {
     try {
       const res = await fetch(`${BACKEND}/admin/provider`)
@@ -115,8 +119,35 @@ export function useAdminPanel() {
       setClaudeModels(data.claude_models ?? [])
       setClaudeKeySet(data.claude_key_set ?? false)
       setClaudeKeyMasked(data.claude_key_masked ?? null)
+      if (data.active_claude_model) setActiveClaudeModel(data.active_claude_model)
     } catch {}
   }, [])
+
+  async function handleSwitchClaudeModel(name) {
+    setSwitchingClaudeModel(true); setClaudeModelStatus(null)
+    try {
+      const res = await fetch(`${BACKEND}/admin/claude-model`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: name }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.detail ?? 'Failed to switch Claude model')
+      setActiveClaudeModel(data.active_claude_model)
+      // Also switch provider to claude if not already active
+      if (activeProvider !== 'claude') {
+        const provRes = await fetch(`${BACKEND}/admin/provider`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ provider: 'claude' }),
+        })
+        const provData = await provRes.json()
+        if (provRes.ok) setActiveProvider(provData.provider)
+      }
+      setClaudeModelStatus({ type: 'success', message: `Switched to ${data.active_claude_model}` })
+    } catch (err) { setClaudeModelStatus({ type: 'error', message: err.message }) }
+    finally { setSwitchingClaudeModel(false) }
+  }
 
   useEffect(() => { loadSources(); loadRules(); loadModels(); loadBenchmarks(); loadDiagHistory(); loadProvider(); loadRamBreakdown(); loadRamSnapshots() }, [loadSources, loadRules, loadModels, loadBenchmarks, loadDiagHistory, loadProvider, loadRamBreakdown, loadRamSnapshots])
 
@@ -279,5 +310,6 @@ export function useAdminPanel() {
     activeProvider, claudeModels, claudeKeySet, claudeKeyMasked,
     switchingProvider, providerStatus, handleSwitchProvider,
     savingClaudeKey, claudeKeyStatus, handleSaveClaudeKey,
+    activeClaudeModel, switchingClaudeModel, claudeModelStatus, handleSwitchClaudeModel,
   }
 }

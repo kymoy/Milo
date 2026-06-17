@@ -161,6 +161,7 @@ export default function AdminContent({ c, admin }) {
     activeProvider, claudeModels, claudeKeySet, claudeKeyMasked,
     switchingProvider, providerStatus, handleSwitchProvider,
     savingClaudeKey, claudeKeyStatus, handleSaveClaudeKey,
+    activeClaudeModel, switchingClaudeModel, claudeModelStatus, handleSwitchClaudeModel,
   } = admin
 
   const [viewingSource, setViewingSource] = useState(null)
@@ -496,10 +497,10 @@ export default function AdminContent({ c, admin }) {
           {activeProvider === 'claude' ? (
             <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
               <select
-                value={activeModel || ''}
-                onChange={e => handleSwitchModel(e.target.value)}
-                disabled={switchingModel}
-                style={{ ...MONO, fontSize: '14px', background: c.input, border: `1px solid ${c.accent}`, borderRadius: '8px', padding: '9px 36px 9px 14px', color: c.accent, cursor: switchingModel ? 'wait' : 'pointer', outline: 'none', appearance: 'none', WebkitAppearance: 'none' }}
+                value={activeClaudeModel || ''}
+                onChange={e => handleSwitchClaudeModel(e.target.value)}
+                disabled={switchingClaudeModel}
+                style={{ ...MONO, fontSize: '14px', background: c.input, border: `1px solid ${c.accent}`, borderRadius: '8px', padding: '9px 36px 9px 14px', color: c.accent, cursor: switchingClaudeModel ? 'wait' : 'pointer', outline: 'none', appearance: 'none', WebkitAppearance: 'none' }}
               >
                 {claudeModels.map(m => (
                   <option key={m.id} value={m.id} style={{ background: '#1a1a2e', color: c.text }}>{m.label}</option>
@@ -527,7 +528,9 @@ export default function AdminContent({ c, admin }) {
             </div>
           )}
           {switchingModel && <div style={{ ...SERIF, fontSize: '13px', color: c.muted, fontStyle: 'italic' }}>Switching…</div>}
+          {switchingClaudeModel && <div style={{ ...SERIF, fontSize: '13px', color: c.muted, fontStyle: 'italic' }}>Switching…</div>}
           {modelStatus && <div style={{ ...SERIF, fontSize: '13px', color: modelStatus.type === 'success' ? '#4ade80' : '#f87171' }}>{modelStatus.message}</div>}
+          {claudeModelStatus && <div style={{ ...SERIF, fontSize: '13px', color: claudeModelStatus.type === 'success' ? '#4ade80' : '#f87171' }}>{claudeModelStatus.message}</div>}
         </div>
 
         {/* Diagnostics */}
@@ -567,7 +570,7 @@ export default function AdminContent({ c, admin }) {
         <div style={{ background: c.botBubble ?? c.input, border: `1px solid ${c.border}`, borderRadius: '12px', padding: '24px' }}>
           <div style={{ ...MONO_U, fontSize: '11px', color: c.accent, marginBottom: '6px' }}>Model comparison</div>
           <div style={{ ...SERIF, fontSize: '14px', color: c.muted, marginBottom: '16px' }}>
-            Currently active: <span style={{ color: c.accent }}>{activeModel || '—'}</span>
+            Currently active: <span style={{ color: c.accent }}>{activeProvider === 'claude' ? (activeClaudeModel || '—') : (activeModel || '—')}</span>
           </div>
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', ...SERIF, fontSize: '14px' }}>
@@ -581,7 +584,7 @@ export default function AdminContent({ c, admin }) {
               <tbody>
                 {RECOMMENDED.map(({ model, vram, dl, tps, ctx, cut, note, best, provider: modelProvider }) => {
                   const isCloud      = modelProvider === 'claude'
-                  const isCurrent    = model === activeModel
+                  const isCurrent    = isCloud ? (model === activeClaudeModel && activeProvider === 'claude') : model === activeModel
                   const stats        = modelStats(model)
                   const bm           = benchmarks[model]
                   const isInstalled  = models.includes(model)
@@ -655,10 +658,24 @@ export default function AdminContent({ c, admin }) {
                         )}
                       </td>
 
-                      {/* Run button */}
+                      {/* Run / Activate button */}
                       <td style={{ ...tdBase }}>
                         {isCloud ? (
-                          <span style={{ ...MONO_U, fontSize: '8px', color: '#818cf8' }}>cloud</span>
+                          model === activeClaudeModel && activeProvider === 'claude' ? (
+                            <span style={{ ...MONO_U, fontSize: '8px', color: '#818cf8' }}>active</span>
+                          ) : (
+                            <button
+                              onClick={() => handleSwitchClaudeModel(model)}
+                              disabled={switchingClaudeModel}
+                              style={{
+                                ...MONO, fontSize: '12px', padding: '4px 12px', borderRadius: '6px',
+                                background: 'transparent', border: `1px solid #818cf8`,
+                                color: '#818cf8', cursor: switchingClaudeModel ? 'wait' : 'pointer',
+                              }}
+                            >
+                              Use
+                            </button>
+                          )
                         ) : !isInstalled ? (
                           <span style={{ ...MONO_U, fontSize: '8px', color: c.muted }}>not installed</span>
                         ) : isRunning ? (
@@ -685,9 +702,6 @@ export default function AdminContent({ c, admin }) {
                 })}
               </tbody>
             </table>
-            <div style={{ ...SERIF, fontSize: '13px', color: c.muted, fontStyle: 'italic', marginTop: '10px' }}>
-              Estimated columns (VRAM, ~Tok/s, Context) are reference values for a mid-range GPU. Measured columns come from running a benchmark on your hardware. RAM shows system-wide % used and the delta from loading the model. Accuracy is 3 factual questions. Run benchmarks one at a time for accurate CPU/RAM readings.
-            </div>
           </div>
         </div>
 
@@ -724,6 +738,7 @@ export default function AdminContent({ c, admin }) {
         const snap = ramSnapshots?.[ramHoverModel]
         const source = bm ?? snap ?? ramBreakdown
         if (!source) return null
+        const hoverStats = modelStats(ramHoverModel)
         return (
           <div style={{
             position: 'fixed', left: ramHoverPos.x + 16, top: ramHoverPos.y - 60,
@@ -731,7 +746,15 @@ export default function AdminContent({ c, admin }) {
             borderRadius: '10px', padding: '14px 16px', zIndex: 2000,
             pointerEvents: 'none', boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
           }}>
-            <div style={{ ...MONO_U, fontSize: '9px', color: c.accent, marginBottom: '10px' }}>RAM breakdown</div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '10px', gap: '24px' }}>
+              <div style={{ ...MONO_U, fontSize: '9px', color: c.accent }}>RAM breakdown</div>
+              {hoverStats && (
+                <div style={{ display: 'flex', gap: '12px' }}>
+                  <span style={{ ...MONO, fontSize: '11px', color: c.muted }}>avg <span style={{ color: c.text }}>{hoverStats.ram_percent}%</span></span>
+                  {hoverStats.ram_min && <span style={{ ...MONO, fontSize: '11px', color: c.muted }}>{hoverStats.ram_min}–{hoverStats.ram_max}%</span>}
+                </div>
+              )}
+            </div>
             <RamDonut bm={source} c={c} />
           </div>
         )

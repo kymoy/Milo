@@ -3,13 +3,14 @@ import { useAuth } from '../../context/AuthContext'
 import { useNavigate } from 'react-router-dom'
 import { useMiloChat } from '../../hooks/useMiloChat'
 import MiloMarkdown from '../../components/MiloMarkdown'
+import LoadingDots from '../../components/LoadingDots'
 
 export default function Chat() {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
 
   const greeting = `${user?.username} — session active.`
-  const { messages, input, setInput, loading, send } = useMiloChat(greeting)
+  const { messages, input, setInput, loading, status, send } = useMiloChat(greeting)
 
   const bottomRef = useRef(null)
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
@@ -53,7 +54,7 @@ export default function Chat() {
             </div>
           )
         })}
-        {loading && <div style={{ fontSize: '9px', color: '#6a9abb', letterSpacing: '3px', textTransform: 'uppercase' }}>Processing...</div>}
+        {loading && messages[messages.length - 1]?.role === 'user' && <LoadingDots text={status || 'Processing...'} style={{ fontSize: '9px', color: '#6a9abb', letterSpacing: '3px', textTransform: 'uppercase' }} />}
         <div ref={bottomRef} />
       </div>
 

@@ -5,6 +5,7 @@ import Sidebar from '../../components/Sidebar'
 import SettingsPanel from '../../components/SettingsPanel'
 import { useMiloChat } from '../../hooks/useMiloChat'
 import MiloMarkdown from '../../components/MiloMarkdown'
+import LoadingDots from '../../components/LoadingDots'
 
 const MONO_U = { fontFamily: "'Inter', system-ui, sans-serif", fontWeight: 100, letterSpacing: '6px', textTransform: 'uppercase' }
 
@@ -20,7 +21,7 @@ export default function Chat() {
   const c = mode === 'dark' ? DARK : LIGHT
 
   const greeting = `${user?.username} — ready.`
-  const { messages, input, setInput, loading, send, resetChat, sessionId, loadSession } = useMiloChat(greeting, useLibrary)
+  const { messages, input, setInput, loading, status, send, resetChat, sessionId, loadSession } = useMiloChat(greeting, useLibrary)
 
   const bottomRef = useRef(null)
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
@@ -69,7 +70,7 @@ export default function Chat() {
               </div>
             )
           })}
-          {loading && <div style={{ ...MONO_U, fontSize: '10px', color: c.muted, letterSpacing: '3px' }}>Processing...</div>}
+          {loading && messages[messages.length - 1]?.role === 'user' && <LoadingDots text={status || 'Processing...'} style={{ ...MONO_U, fontSize: '10px', color: c.muted, letterSpacing: '3px' }} />}
           <div ref={bottomRef} />
         </div>
 

@@ -22,6 +22,7 @@ try:
 except Exception:
     _ANTHROPIC_AVAILABLE = False
 from fastapi import FastAPI, HTTPException, UploadFile, File
+from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, field_validator
 from typing import Literal
@@ -66,7 +67,8 @@ MODEL_PATH       = Path(__file__).parent / "milo_model.txt"
 PROVIDER_PATH    = Path(__file__).parent / "milo_provider.txt"
 METRICS_PATH     = Path(__file__).parent / "milo_metrics.json"
 BENCHMARK_PATH   = Path(__file__).parent / "milo_benchmarks.json"
-RAM_SNAPSHOTS_PATH = Path(__file__).parent / "milo_ram_snapshots.json"
+RAM_SNAPSHOTS_PATH   = Path(__file__).parent / "milo_ram_snapshots.json"
+CLAUDE_MODEL_PATH    = Path(__file__).parent / "milo_claude_model.txt"
 
 BENCHMARK_SPEED_PROMPT = "Count from 1 to 30, putting each number on its own line. Do not add any other text."
 BENCHMARK_ACCURACY_PROMPTS = [
@@ -186,6 +188,23 @@ def set_active_model(name: str) -> None:
     global _active_model
     _active_model = name
     MODEL_PATH.write_text(name, encoding="utf-8")
+
+
+_active_claude_model: str = (
+    CLAUDE_MODEL_PATH.read_text(encoding="utf-8").strip()
+    if CLAUDE_MODEL_PATH.exists() and CLAUDE_MODEL_PATH.read_text(encoding="utf-8").strip()
+    else "claude-sonnet-4-6"
+)
+
+
+def get_active_claude_model() -> str:
+    return _active_claude_model
+
+
+def set_active_claude_model(name: str) -> None:
+    global _active_claude_model
+    _active_claude_model = name
+    CLAUDE_MODEL_PATH.write_text(name, encoding="utf-8")
 
 
 _active_provider: str = (
@@ -446,8 +465,9 @@ def ask_claude(messages: list[dict]) -> dict:
         client = _anthropic_sdk.Anthropic(api_key=api_key)
         system_msgs = [m for m in messages if m["role"] == "system"]
         convo_msgs  = [m for m in messages if m["role"] != "system"]
+        claude_model = get_active_claude_model()
         kwargs: dict = {
-            "model": get_active_model(),
+            "model": claude_model,
             "max_tokens": 4096,
             "messages": [{"role": m["role"], "content": m["content"]} for m in convo_msgs],
         }
@@ -462,7 +482,7 @@ def ask_claude(messages: list[dict]) -> dict:
         sys_stats = get_system_stats()
         metrics = {
             "ts": time.time(),
-            "model": get_active_model(),
+            "model": claude_model,
             "response_ms": elapsed_ms,
             "cpu_percent": cpu,
             "tokens_per_sec": tokens_per_sec,
@@ -470,7 +490,7 @@ def ask_claude(messages: list[dict]) -> dict:
         }
         METRICS_HISTORY.append(metrics)
         _save_metrics()
-        _capture_ram_snapshot(get_active_model())
+        _capture_ram_snapshot(claude_model)
         return {"text": text, "metrics": metrics}
     except _anthropic_sdk.AuthenticationError:
         return {"text": "CLAUDE_ERROR:Invalid API key. Check your key in Admin > Models.", "metrics": None}
@@ -585,7 +605,18 @@ def admin_get_provider():
         "claude_key_set": bool(key),
         "claude_key_masked": masked,
         "claude_models": CLAUDE_MODELS,
+        "active_claude_model": get_active_claude_model(),
     }
+
+
+@app.post("/admin/claude-model")
+def admin_set_claude_model(body: dict):
+    name = body.get("model", "").strip()
+    valid_ids = [m["id"] for m in CLAUDE_MODELS]
+    if not name or name not in valid_ids:
+        raise HTTPException(status_code=400, detail=f"Invalid Claude model. Must be one of: {', '.join(valid_ids)}")
+    set_active_claude_model(name)
+    return {"active_claude_model": name}
 
 
 @app.post("/admin/provider")
@@ -919,3 +950,137 @@ def chat(body: ChatMessage):
         return {"reply": f"Claude API error: {detail}", "metrics": None}
 
     return {"reply": answer, "metrics": metrics}
+
+
+@app.post("/chat/stream")
+def chat_stream(body: ChatMessage):
+    active_style = get_active_style(body.message, body.history)
+    rules = load_rules()
+    rules_note = f"\n\nRules to always follow:\n{rules}" if rules else ""
+
+    if active_style:
+        system_base = (
+            f"You are Milo, a helpful conversational assistant. "
+            f"You MUST speak entirely in {active_style} style for every sentence. "
+            f"Apply {active_style} vocabulary and mannerisms even when answering factual questions."
+        ) + rules_note
+    else:
+        system_base = BASE_SYSTEM_PROMPT + rules_note
+
+    def generate():
+        system_content = system_base
+
+        if body.use_library:
+            yield 'data: {"type":"status","message":"Searching your library..."}\n\n'
+            try:
+                chunks = retrieve(body.message, n_results=3)
+            except Exception:
+                chunks = []
+            if chunks:
+                count = len(chunks)
+                label = "sources" if count != 1 else "source"
+                yield f'data: {{"type":"status","message":"Reading {count} {label}..."}}\n\n'
+                system_content = (
+                    system_base
+                    + "\n\nUse the context below to help answer questions. "
+                    "If the answer is not in the context, use your general knowledge.\n\n"
+                    f"Context:\n{build_context(chunks)}"
+                )
+
+        messages = [{"role": "system", "content": system_content}]
+        for h in body.history[-HISTORY_LIMIT:]:
+            messages.append({"role": h.role, "content": h.text})
+        messages.append({"role": "user", "content": body.message})
+
+        provider = get_active_provider()
+
+        if provider == "ollama":
+            psutil.cpu_percent(interval=None)
+            start = time.time()
+            try:
+                resp = requests.post(
+                    OLLAMA_CHAT_URL,
+                    json={
+                        "model": get_active_model(),
+                        "messages": messages,
+                        "stream": True,
+                        "keep_alive": "10m",
+                        "options": {"num_ctx": 4096},
+                    },
+                    stream=True,
+                    timeout=180,
+                )
+                resp.raise_for_status()
+                eval_count = 0
+                eval_duration_ns = 0
+                for line in resp.iter_lines():
+                    if not line:
+                        continue
+                    try:
+                        data = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    token = data.get("message", {}).get("content", "")
+                    if token:
+                        yield f'data: {json.dumps({"type": "token", "content": token})}\n\n'
+                    if data.get("done"):
+                        eval_count = data.get("eval_count", 0)
+                        eval_duration_ns = data.get("eval_duration", 0)
+                        break
+                elapsed_ms = round((time.time() - start) * 1000)
+                cpu = round(psutil.cpu_percent(interval=None), 1)
+                tokens_per_sec = round(eval_count / (eval_duration_ns / 1e9), 1) if eval_duration_ns > 0 else None
+                sys_stats = get_system_stats()
+                metrics = {
+                    "ts": time.time(),
+                    "model": get_active_model(),
+                    "response_ms": elapsed_ms,
+                    "cpu_percent": cpu,
+                    "tokens_per_sec": tokens_per_sec,
+                    **sys_stats,
+                }
+                METRICS_HISTORY.append(metrics)
+                _save_metrics()
+                _capture_ram_snapshot(get_active_model())
+                yield f'data: {json.dumps({"type": "done", "metrics": metrics})}\n\n'
+            except requests.exceptions.ConnectionError:
+                yield 'data: {"type":"error","message":"Ollama is not reachable. Open a terminal and run: ollama serve"}\n\n'
+            except requests.exceptions.Timeout:
+                yield 'data: {"type":"error","message":"Milo is still thinking — the model took too long."}\n\n'
+            except Exception:
+                yield 'data: {"type":"error","message":"Something went wrong."}\n\n'
+        else:
+            yield 'data: {"type":"status","message":"Composing response..."}\n\n'
+            result = ask_llm(messages)
+            answer = result["text"]
+            metrics = result["metrics"]
+            if answer == "CONNECTION_ERROR":
+                yield 'data: {"type":"error","message":"Ollama is not reachable. Open a terminal and run: ollama serve"}\n\n'
+            elif answer == "TIMEOUT_ERROR":
+                yield 'data: {"type":"error","message":"Milo is still thinking — the model took too long."}\n\n'
+            elif isinstance(answer, str) and (answer.startswith("BEDROCK_ERROR:") or answer.startswith("CLAUDE_ERROR:")):
+                detail = answer.split(":", 1)[1]
+                yield f'data: {json.dumps({"type": "error", "message": detail})}\n\n'
+            else:
+                yield f'data: {json.dumps({"type": "token", "content": answer})}\n\n'
+                yield f'data: {json.dumps({"type": "done", "metrics": metrics})}\n\n'
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@app.post("/warmup")
+def warmup():
+    if get_active_provider() == "ollama":
+        try:
+            requests.post(
+                OLLAMA_CHAT_URL,
+                json={"model": get_active_model(), "messages": [], "keep_alive": "10m"},
+                timeout=10,
+            )
+        except Exception:
+            pass
+    return {"ok": True}

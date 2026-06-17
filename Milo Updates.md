@@ -1,5 +1,26 @@
 # Milo Updates
 
+## [2026-06-17] Streaming responses, context-aware status, and model warm-up
+
+### Added
+- **Streaming responses**: Milo now streams its reply token-by-token as it generates, so text appears immediately instead of after a full wait. Backend exposes a new `POST /chat/stream` endpoint using Server-Sent Events (SSE); the frontend reads the stream via the Fetch `ReadableStream` API. All 8 themes updated.
+- **Context-aware status messages**: While Milo is working, the loading indicator now shows what it's actually doing — *"Searching your library..."* during RAG retrieval, *"Reading N sources..."* when chunks are found, and *"Composing response..."* for Bedrock/Claude providers. The indicator disappears the moment the first token arrives and the response bubble takes over.
+- **Model warm-up ping**: The `useMiloChat` hook now pings `POST /warmup` on mount and every 4 minutes. This keeps the Ollama model loaded in RAM so the first response after an idle period doesn't pay a cold-start penalty.
+- **Optimistic message echo**: Confirmed across all themes — user messages appear in the chat bubble instantly on send, before any backend call completes.
+
+### Changed
+- **Average RAM in pie tooltip**: The RAM breakdown tooltip header now shows avg RAM% and min–max range pulled from conversation history, alongside the process breakdown donut.
+- **RAM pie for stats-only models**: Models with conversation history but no snapshot now show the live system RAM donut on hover instead of nothing.
+
+### Removed
+- **Comparison table footnote**: Removed the italicized column explanation text at the bottom of the model comparison table.
+
+### Notes
+- Bedrock and Claude providers fall back to a single-chunk response (SSE still used, so the UX is consistent — status shows, then the full reply appears at once).
+- The old `POST /chat` endpoint is unchanged and still available.
+
+---
+
 ## [2026-06-16] Claude API provider, model comparison improvements, RAM pie for all models
 
 ### Added

@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import { useNavigate } from 'react-router-dom'
 import MiloMarkdown from '../../components/MiloMarkdown'
+import LoadingDots from '../../components/LoadingDots'
 
 const BACKEND = 'http://localhost:8000'
 const MAX = 2000
@@ -18,19 +19,39 @@ export default function Chat() {
   const [messages, setMessages] = useState([{ role: 'bot', text: `Hi ${user?.username} — I'm Milo. How can I help you?` }])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
+  const [status, setStatus] = useState(null)
   const bottomRef = useRef(null)
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
 
   async function send() {
     const text = input.trim()
     if (!text || loading || text.length > MAX) return
-    setMessages(p => [...p, { role: 'user', text }]); setInput(''); setLoading(true)
+    const withUser = [...messages, { role: 'user', text }]
+    setMessages(withUser); setInput(''); setLoading(true); setStatus(null)
+    let accumulated = ''
     try {
-      const res = await fetch(`${BACKEND}/chat`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: text }) })
-      const data = await res.json()
-      setMessages(p => [...p, { role: 'bot', text: data.reply }])
-    } catch { setMessages(p => [...p, { role: 'bot', text: 'No connection.' }]) }
-    finally { setLoading(false) }
+      const res = await fetch(`${BACKEND}/chat/stream`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: text }) })
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n'); buffer = lines.pop()
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue
+          try {
+            const event = JSON.parse(line.slice(6))
+            if (event.type === 'status') { setStatus(event.message) }
+            else if (event.type === 'token') { accumulated += event.content; setStatus(null); setMessages([...withUser, { role: 'bot', text: accumulated }]) }
+            else if (event.type === 'done') { setMessages([...withUser, { role: 'bot', text: accumulated }]) }
+            else if (event.type === 'error') { setMessages([...withUser, { role: 'bot', text: event.message }]) }
+          } catch {}
+        }
+      }
+    } catch { setMessages([...withUser, { role: 'bot', text: 'No connection.' }]) }
+    finally { setLoading(false); setStatus(null) }
   }
 
   const border = `1px solid ${c.accent}22`
@@ -57,7 +78,7 @@ export default function Chat() {
             </div>
           </div>
         ))}
-        {loading && <div style={{ ...T, fontSize: '8px', letterSpacing: '3px', color: `${c.text}44`, fontWeight: 300 }}>Thinking...</div>}
+        {loading && messages[messages.length - 1]?.role === 'user' && <LoadingDots text={status || 'Thinking...'} style={{ ...T, fontSize: '8px', letterSpacing: '3px', color: `${c.text}44`, fontWeight: 300 }} />}
         <div ref={bottomRef} />
       </div>
 
