@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import DiagnosticsPanel from './DiagnosticsPanel'
+import TestsPanel from './TestsPanel'
 
 const BACKEND = 'http://localhost:8000'
 
@@ -103,6 +104,34 @@ function RamDonut({ bm, c }) {
           Total: {fmt(total)}
         </div>
       </div>
+    </div>
+  )
+}
+
+function LiveStatus({ c }) {
+  const [live, setLive] = useState(null)
+  useEffect(() => {
+    const load = () => fetch('http://localhost:8000/admin/live-status').then(r => r.json()).then(setLive).catch(() => {})
+    load()
+    const id = setInterval(load, 5000)
+    return () => clearInterval(id)
+  }, [])
+  if (!live) return null
+  const isCloud = live.provider === 'claude'
+  const model   = isCloud ? live.claude_model : live.model
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: '10px',
+      background: isCloud ? 'rgba(244,114,182,0.07)' : 'rgba(129,140,248,0.07)',
+      border: `1px solid ${isCloud ? 'rgba(244,114,182,0.3)' : 'rgba(129,140,248,0.3)'}`,
+      borderRadius: '10px', padding: '10px 16px',
+    }}>
+      <div style={{ width: '7px', height: '7px', borderRadius: '50%', background: isCloud ? '#f472b6' : '#818cf8', flexShrink: 0 }} />
+      <span style={{ ...MONO_U, fontSize: '9px', color: isCloud ? '#f472b6' : '#818cf8' }}>
+        {isCloud ? 'Claude API' : 'Ollama'}
+      </span>
+      <span style={{ ...MONO, fontSize: '12px', color: c.text }}>{model ?? '—'}</span>
+      <span style={{ ...MONO, fontSize: '10px', color: c.muted, marginLeft: 'auto' }}>live</span>
     </div>
   )
 }
@@ -267,7 +296,7 @@ export default function AdminContent({ c, admin }) {
 
   const saveDisabled = !sourceName.trim() || !content.trim() || creating
 
-  const TABS = ['library', 'models']
+  const TABS = ['library', 'models', 'library tests']
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
@@ -325,7 +354,7 @@ export default function AdminContent({ c, admin }) {
               </>
             )}
           </div>
-          <input ref={fileInputRef} type="file" accept=".md,.txt" style={{ display: 'none' }}
+          <input ref={fileInputRef} type="file" accept=".md,.txt,.pdf" style={{ display: 'none' }}
             onChange={e => setUploadFile(e.target.files[0] ?? null)} />
 
           <div style={{ display: 'flex', gap: '10px' }}>
@@ -435,6 +464,9 @@ export default function AdminContent({ c, admin }) {
       </>}
 
       {activeTab === 'models' && <>
+
+        {/* Live backend status */}
+        <LiveStatus c={c} />
 
         {/* Provider selector */}
         <div style={{ background: c.botBubble ?? c.input, border: `1px solid ${c.border}`, borderRadius: '12px', padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
@@ -731,6 +763,7 @@ export default function AdminContent({ c, admin }) {
 
       </>}
 
+      {activeTab === 'library tests' && <TestsPanel c={c} />}
 
       {/* RAM pie tooltip */}
       {ramHoverModel && (() => {

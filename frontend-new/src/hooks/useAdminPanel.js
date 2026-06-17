@@ -34,14 +34,17 @@ export function useAdminPanel() {
   const [diagHistory, setDiagHistory]         = useState([])
   const [diagCurrent, setDiagCurrent]         = useState(null)
 
-  const [activeProvider, setActiveProvider]     = useState('ollama')
-  const [claudeModels, setClaudeModels]         = useState([])
-  const [claudeKeySet, setClaudeKeySet]         = useState(false)
-  const [claudeKeyMasked, setClaudeKeyMasked]   = useState(null)
-  const [switchingProvider, setSwitchingProvider] = useState(false)
-  const [providerStatus, setProviderStatus]     = useState(null)
-  const [savingClaudeKey, setSavingClaudeKey]   = useState(false)
-  const [claudeKeyStatus, setClaudeKeyStatus]   = useState(null)
+  const [activeProvider, setActiveProvider]         = useState('ollama')
+  const [claudeModels, setClaudeModels]             = useState([])
+  const [activeClaudeModel, setActiveClaudeModel]   = useState('claude-sonnet-4-6')
+  const [switchingClaudeModel, setSwitchingClaudeModel] = useState(false)
+  const [claudeModelStatus, setClaudeModelStatus]   = useState(null)
+  const [claudeKeySet, setClaudeKeySet]             = useState(false)
+  const [claudeKeyMasked, setClaudeKeyMasked]       = useState(null)
+  const [switchingProvider, setSwitchingProvider]   = useState(false)
+  const [providerStatus, setProviderStatus]         = useState(null)
+  const [savingClaudeKey, setSavingClaudeKey]       = useState(false)
+  const [claudeKeyStatus, setClaudeKeyStatus]       = useState(null)
 
   const loadSources = useCallback(async () => {
     setLoadingSources(true)
@@ -107,10 +110,6 @@ export function useAdminPanel() {
     } catch {}
   }, [])
 
-  const [activeClaudeModel, setActiveClaudeModel] = useState('claude-sonnet-4-6')
-  const [switchingClaudeModel, setSwitchingClaudeModel] = useState(false)
-  const [claudeModelStatus, setClaudeModelStatus] = useState(null)
-
   const loadProvider = useCallback(async () => {
     try {
       const res = await fetch(`${BACKEND}/admin/provider`)
@@ -134,17 +133,16 @@ export function useAdminPanel() {
       const data = await res.json()
       if (!res.ok) throw new Error(data.detail ?? 'Failed to switch Claude model')
       setActiveClaudeModel(data.active_claude_model)
-      // Also switch provider to claude if not already active
-      if (activeProvider !== 'claude') {
-        const provRes = await fetch(`${BACKEND}/admin/provider`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ provider: 'claude' }),
-        })
-        const provData = await provRes.json()
-        if (provRes.ok) setActiveProvider(provData.provider)
-      }
-      setClaudeModelStatus({ type: 'success', message: `Switched to ${data.active_claude_model}` })
+      // Ensure provider is also set to claude
+      const provRes = await fetch(`${BACKEND}/admin/provider`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provider: 'claude' }),
+      })
+      const provData = await provRes.json()
+      if (!provRes.ok) throw new Error(provData.detail ?? 'Model set, but failed to switch provider to Claude')
+      setActiveProvider(provData.provider)
+      setClaudeModelStatus({ type: 'success', message: `Active: ${data.active_claude_model} via Claude API` })
     } catch (err) { setClaudeModelStatus({ type: 'error', message: err.message }) }
     finally { setSwitchingClaudeModel(false) }
   }

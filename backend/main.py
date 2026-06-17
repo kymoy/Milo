@@ -17,6 +17,13 @@ except ImportError:
     _BOTO3_AVAILABLE = False
 
 try:
+    import io
+    from pypdf import PdfReader
+    _PYPDF_AVAILABLE = True
+except ImportError:
+    _PYPDF_AVAILABLE = False
+
+try:
     import anthropic as _anthropic_sdk
     _ANTHROPIC_AVAILABLE = True
 except Exception:
@@ -593,6 +600,16 @@ def admin_set_model(body: dict):
     return {"active": name}
 
 
+@app.get("/admin/live-status")
+def admin_live_status():
+    """Returns the actual in-memory provider and model — reflects what the next chat will use."""
+    return {
+        "provider": get_active_provider(),
+        "model": get_active_model() if get_active_provider() == "ollama" else None,
+        "claude_model": get_active_claude_model() if get_active_provider() == "claude" else None,
+    }
+
+
 @app.get("/admin/provider")
 def admin_get_provider():
     key = get_claude_api_key()
@@ -794,13 +811,22 @@ def admin_sources():
 
 @app.post("/admin/upload")
 async def admin_upload(file: UploadFile = File(...)):
-    if not file.filename.endswith((".md", ".txt")):
-        raise HTTPException(status_code=400, detail="Only .md and .txt files are supported.")
+    if not file.filename.endswith((".md", ".txt", ".pdf")):
+        raise HTTPException(status_code=400, detail="Only .md, .txt, and .pdf files are supported.")
     content = await file.read()
-    try:
-        text = content.decode("utf-8")
-    except UnicodeDecodeError:
-        raise HTTPException(status_code=400, detail="File must be UTF-8 encoded text.")
+    if file.filename.endswith(".pdf"):
+        if not _PYPDF_AVAILABLE:
+            raise HTTPException(status_code=500, detail="PDF support requires pypdf. Run: pip install pypdf")
+        try:
+            reader = PdfReader(io.BytesIO(content))
+            text = "\n".join(page.extract_text() or "" for page in reader.pages)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Could not read PDF: {e}")
+    else:
+        try:
+            text = content.decode("utf-8")
+        except UnicodeDecodeError:
+            raise HTTPException(status_code=400, detail="File must be UTF-8 encoded text.")
     source_name = re.sub(r'[^\w\-]', '_', file.filename.rsplit(".", 1)[0])
     chunks = ingest_text(text, source_name)
     return {"source": source_name, "chunks": chunks}
@@ -1070,6 +1096,48 @@ def chat_stream(body: ChatMessage):
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+@app.post("/admin/tests/run")
+def run_admin_tests():
+    import pytest
+    test_path = Path(__file__).parent / "tests" / "test_knowledge_library.py"
+
+    class ResultCollector:
+        def __init__(self):
+            self.results = []
+            self.descriptions = {}
+
+        def pytest_itemcollected(self, item):
+            doc = (item.function.__doc__ or "").strip()
+            self.descriptions[item.nodeid] = doc
+
+        def pytest_runtest_logreport(self, report):
+            if report.when == "call" or (report.when == "setup" and report.failed):
+                nodeid = report.nodeid
+                fn_name = nodeid.split("::")[-1]
+                label = fn_name.replace("test_", "").replace("_", " ").title()
+                self.results.append({
+                    "id": fn_name,
+                    "name": label,
+                    "outcome": "passed" if report.passed else "failed",
+                    "duration": round(getattr(report, "duration", 0), 3),
+                    "description": self.descriptions.get(nodeid, ""),
+                    "error": str(report.longrepr).strip() if report.longrepr else None,
+                })
+
+    collector = ResultCollector()
+    pytest.main(
+        [str(test_path), "--tb=short", "-q", "--no-header", "-p", "no:warnings"],
+        plugins=[collector],
+    )
+
+    total = len(collector.results)
+    passed = sum(1 for r in collector.results if r["outcome"] == "passed")
+    return {
+        "results": collector.results,
+        "summary": {"total": total, "passed": passed, "failed": total - passed},
+    }
 
 
 @app.post("/warmup")
