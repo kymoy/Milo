@@ -12,6 +12,7 @@
 ### Notes
 - **Claude API response quality**: Switching to Claude (Haiku/Sonnet) produced noticeably faster and more accurate responses compared to local Ollama models on this hardware.
 - **Knowledge library with Claude**: Uploading documents to the library and querying them via Claude works — RAG retrieval feeds context to the Claude API the same as it does for Ollama.
+- **PDF ingestion test**: Tested uploading a PDF of Milo Updates into the knowledge library. Text extraction via `pypdf` worked and Milo was able to answer questions about its own changelog.
 
 ---
 
