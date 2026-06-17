@@ -187,7 +187,7 @@ export default function Admin() {
                 </>
               )}
             </div>
-            <input ref={fileInputRef} type="file" accept=".md,.txt" style={{ display: 'none' }} onChange={e => setUploadFile(e.target.files[0] ?? null)} />
+            <input ref={fileInputRef} type="file" accept=".md,.txt,.pdf" style={{ display: 'none' }} onChange={e => setUploadFile(e.target.files[0] ?? null)} />
 
             <div style={{ display: 'flex', gap: '10px' }}>
               <button onClick={handleUpload} disabled={!uploadFile || uploading} style={btnStyle(!uploadFile || uploading)}>

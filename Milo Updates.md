@@ -1,5 +1,17 @@
 # Milo Updates
 
+## [2026-06-17] PDF upload support, frozen model comparison table
+
+### Added
+- **PDF upload to knowledge library**: The Admin > Library upload now accepts `.pdf` files in addition to `.md` and `.txt`. The backend extracts text page-by-page via `pypdf` and passes it through the existing parent-child chunking pipeline — no changes to RAG retrieval required. Frontend file pickers updated in both `AdminContent.jsx` and `Admin.jsx`.
+- **Frozen columns in model comparison table**: The header row and Model name column now stay visible when scrolling the table horizontally or vertically. Uses CSS `position: sticky` with opaque `c.sidebar` backgrounds, a border-right separator on the Model column, and subtle box-shadows on both frozen axes to signal the freeze visually.
+
+### Fixed
+- **Model column width**: Capped the frozen Model column at `180px` with wrapping enabled so long model names (e.g. `llama3.3:70b-instruct-q4_K_M`) don't stretch across the table.
+- **Missing left padding**: Added `10px` left padding to the frozen Model column cells and the adjacent VRAM column so text isn't flush against the column edge.
+
+---
+
 ## [2026-06-17] Claude performance, PDF support groundwork, routing fix
 
 ### Added

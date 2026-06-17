@@ -604,12 +604,12 @@ export default function AdminContent({ c, admin }) {
           <div style={{ ...SERIF, fontSize: '14px', color: c.muted, marginBottom: '16px' }}>
             Currently active: <span style={{ color: c.accent }}>{activeProvider === 'claude' ? (activeClaudeModel || '—') : (activeModel || '—')}</span>
           </div>
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', ...SERIF, fontSize: '14px' }}>
+          <div style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: '480px' }}>
+            <table style={{ width: '100%', borderCollapse: 'separate', borderSpacing: 0, ...SERIF, fontSize: '14px' }}>
               <thead>
                 <tr>
-                  {['Model', 'VRAM', 'Download', '~Tok/s (GPU)', 'Context', 'Cutoff', 'Actual Tok/s', 'CPU %', 'RAM', 'Accuracy', 'Response Time', '', 'Notes'].map(h => (
-                    <th key={h} style={{ ...MONO_U, fontSize: '9px', color: c.muted, textAlign: 'left', padding: '6px 14px 10px 0', borderBottom: `1px solid ${c.border}`, whiteSpace: 'nowrap' }}>{h}</th>
+                  {['Model', 'VRAM', 'Download', '~Tok/s (GPU)', 'Context', 'Cutoff', 'Actual Tok/s', 'CPU %', 'RAM', 'Accuracy', 'Response Time', '', 'Notes'].map((h, i) => (
+                    <th key={h} style={{ ...MONO_U, fontSize: '9px', color: c.muted, textAlign: 'left', padding: '6px 14px 10px 0', borderBottom: `1px solid ${c.border}`, whiteSpace: 'nowrap', position: 'sticky', top: 0, background: c.sidebar, zIndex: i === 0 ? 3 : 2, boxShadow: '0 2px 4px rgba(0,0,0,0.12)', ...(i === 0 ? { left: 0, maxWidth: '180px', padding: '6px 14px 10px 10px', borderRight: `1px solid ${c.border}` } : {}), ...(i === 1 ? { paddingLeft: '10px' } : {}) }}>{h}</th>
                   ))}
                 </tr>
               </thead>
@@ -626,14 +626,14 @@ export default function AdminContent({ c, admin }) {
                   return (
                     <tr key={model}
                       style={{ background: isCurrent ? `${c.accent}0d` : best ? 'rgba(74,222,128,0.04)' : 'transparent' }}>
-                      <td style={tdBase}>
+                      <td style={{ ...tdBase, position: 'sticky', left: 0, zIndex: 1, maxWidth: '180px', whiteSpace: 'normal', background: c.sidebar, padding: '10px 14px 10px 10px', borderRight: `1px solid ${c.border}`, boxShadow: '2px 0 4px rgba(0,0,0,0.1)' }}>
                         <code style={{ ...MONO, fontSize: '13px', color: isCurrent ? c.accent : best ? '#4ade80' : c.text }}>{model}</code>
                         {isCurrent && <span style={{ ...MONO_U, fontSize: '8px', color: c.accent, marginLeft: '8px' }}>active</span>}
                         {best && !isCurrent && <span style={{ ...MONO_U, fontSize: '8px', color: '#4ade80', marginLeft: '8px' }}>recommended</span>}
                         {isCloud && !isCurrent && <span style={{ ...MONO_U, fontSize: '8px', color: '#818cf8', marginLeft: '8px' }}>claude api</span>}
                         {stats && <span style={{ ...MONO_U, fontSize: '8px', color: c.muted, marginLeft: '8px' }}>{stats.requests} req</span>}
                       </td>
-                      <td style={{ ...tdBase, color: isCloud ? '#818cf8' : c.text, fontStyle: isCloud ? 'italic' : 'normal' }}>{vram}</td>
+                      <td style={{ ...tdBase, paddingLeft: '10px', color: isCloud ? '#818cf8' : c.text, fontStyle: isCloud ? 'italic' : 'normal' }}>{vram}</td>
                       <td style={{ ...tdBase, color: isCloud ? c.muted : c.text }}>{dl}</td>
                       <td style={{ ...tdBase, color: c.text }}>{tps}</td>
                       <td style={{ ...tdBase, color: c.text }}>{ctx}</td>
