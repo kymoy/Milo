@@ -1,5 +1,20 @@
 # Milo Updates
 
+## [2026-06-17] Claude performance, PDF support groundwork, routing fix
+
+### Added
+- **pypdf dependency**: Added `pypdf` to `requirements.txt` — will be used to extract text from PDF files so they can be ingested into Milo's knowledge library (same pipeline as .md and .txt files).
+- **Live backend status indicator**: Admin > Models now shows a live badge (polling every 5s) with the actual in-memory provider and model the next chat will use — makes it immediately obvious if provider state didn't save correctly.
+
+### Fixed
+- **Claude provider not persisting correctly**: Switching Claude models now always re-asserts the provider to "claude" and surfaces a visible error if it fails — previously the switch could silently succeed while leaving the provider as Ollama, causing phi4:14b to keep running.
+
+### Notes
+- **Claude API response quality**: Switching to Claude (Haiku/Sonnet) produced noticeably faster and more accurate responses compared to local Ollama models on this hardware.
+- **Knowledge library with Claude**: Uploading documents to the library and querying them via Claude works — RAG retrieval feeds context to the Claude API the same as it does for Ollama.
+
+---
+
 ## [2026-06-17] Streaming responses, context-aware status, and model warm-up
 
 ### Added

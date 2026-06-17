@@ -7,4 +7,5 @@ chromadb
 boto3
 python-multipart
 anthropic
+pypdf
 python-dotenv
