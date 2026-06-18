@@ -13,8 +13,17 @@ export default function Sidebar({ colors: c, user, onLogout, onSettings, onNewCh
   const adminTogglePath  = isOnAdmin ? `/${themePrefix}/chat` : `/${themePrefix}/admin`
   const adminToggleLabel = isOnAdmin ? '← Back to chat' : '⚙ Admin panel'
 
+  const [collapsed, setCollapsed] = useState(() => localStorage.getItem('milo_sidebar') === 'collapsed')
   const [sessions, setSessions] = useState([])
   const [deletingId, setDeletingId] = useState(null)
+
+  function toggle() {
+    setCollapsed(v => {
+      const next = !v
+      localStorage.setItem('milo_sidebar', next ? 'collapsed' : 'expanded')
+      return next
+    })
+  }
 
   const fetchSessions = useCallback(async () => {
     try {
@@ -30,7 +39,6 @@ export default function Sidebar({ colors: c, user, onLogout, onSettings, onNewCh
     return () => clearInterval(id)
   }, [fetchSessions])
 
-  // Refresh when active session changes (new chat saved)
   useEffect(() => { fetchSessions() }, [activeSessionId, fetchSessions])
 
   async function handleDelete(e, sessionId) {
@@ -56,17 +64,63 @@ export default function Sidebar({ colors: c, user, onLogout, onSettings, onNewCh
     } catch {}
   }
 
+  if (collapsed) {
+    return (
+      <div
+        onClick={toggle}
+        title="Expand sidebar"
+        style={{
+          width: '56px', minWidth: '56px', background: c.sidebar,
+          borderRight: `1px solid ${c.border}`, display: 'flex',
+          flexDirection: 'column', height: '100vh', position: 'sticky', top: 0,
+          alignItems: 'center', paddingTop: '16px', paddingBottom: '16px', gap: '10px',
+          cursor: 'pointer',
+        }}>
+        <div style={{ fontSize: '16px', color: c.muted, lineHeight: 1, padding: '4px 6px' }}>›</div>
+        <button
+          onClick={e => { e.stopPropagation(); onNewChat() }}
+          title="New Chat"
+          style={{ background: `${c.accent}18`, border: `1px solid ${c.accent}44`, borderRadius: '8px', width: '36px', height: '36px', color: c.accent, cursor: 'pointer', fontSize: '20px', lineHeight: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'background 0.2s' }}
+          onMouseEnter={e => e.currentTarget.style.background = `${c.accent}28`}
+          onMouseLeave={e => e.currentTarget.style.background = `${c.accent}18`}>
+          +
+        </button>
+        <div style={{ flex: 1 }} />
+        <div
+          style={{ width: '32px', height: '32px', borderRadius: '50%', background: `${c.accent}33`, border: `1px solid ${c.accent}55`, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
+          title={user?.username}
+          onClick={e => { e.stopPropagation(); onSettings() }}>
+          <span style={{ ...MONO_U, fontSize: '11px', color: c.accent }}>{user?.username?.[0]?.toUpperCase()}</span>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div style={{
       width: '240px', minWidth: '240px', background: c.sidebar,
       borderRight: `1px solid ${c.border}`, display: 'flex',
       flexDirection: 'column', height: '100vh', position: 'sticky', top: 0,
+      position: 'relative',
     }}>
+      {/* Full-height right-edge collapse strip — widens on hover for easy clicking */}
+      <div
+        onClick={toggle}
+        title="Collapse sidebar"
+        style={{
+          position: 'absolute', right: 0, top: 0, bottom: 0, width: '8px',
+          cursor: 'col-resize', zIndex: 10, transition: 'width 0.15s, background 0.15s',
+        }}
+        onMouseEnter={e => { e.currentTarget.style.width = '20px'; e.currentTarget.style.background = `${c.accent}28` }}
+        onMouseLeave={e => { e.currentTarget.style.width = '8px'; e.currentTarget.style.background = 'transparent' }}
+      />
       {/* Logo */}
       <div style={{ padding: '24px 20px 16px', borderBottom: `1px solid ${c.border}` }}>
-        <div onClick={() => navigate('/')} style={{ ...MONO_U, fontSize: '14px', color: c.accent, marginBottom: '14px', cursor: 'pointer', display: 'inline-block' }}
-          onMouseEnter={e => e.currentTarget.style.opacity = '0.7'}
-          onMouseLeave={e => e.currentTarget.style.opacity = '1'}>MILO</div>
+        <div style={{ marginBottom: '14px' }}>
+          <div onClick={() => navigate('/')} style={{ ...MONO_U, fontSize: '14px', color: c.accent, cursor: 'pointer', display: 'inline-block' }}
+            onMouseEnter={e => e.currentTarget.style.opacity = '0.7'}
+            onMouseLeave={e => e.currentTarget.style.opacity = '1'}>MILO</div>
+        </div>
         <button onClick={onNewChat} style={{
           width: '100%', background: `${c.accent}18`, border: `1px solid ${c.accent}44`,
           borderRadius: '8px', padding: '9px 14px', color: c.accent, cursor: 'pointer',

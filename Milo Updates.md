@@ -1,5 +1,35 @@
 # Milo Updates
 
+## [2026-06-18] Token diagnostics, theme architecture refactor, collapsible sidebar
+
+### Added
+- **Backend test suite** (`backend/tests/test_knowledge_library.py`): 13 pytest tests covering the full knowledge library pipeline. Uses an isolated in-memory ChromaDB per test via `monkeypatch` — production data is never touched. Test groups: ingestion (chunk creation, parent-child linking, duplicate cleanup), retrieval (vector search, graceful empty-DB handling), source management (list, delete, full chunk cleanup from both collections), upload endpoint (`.md` accepted, `.txt` accepted, invalid extension rejected with 400, invalid UTF-8 rejected with 400), create endpoint (empty content rejected with 422, oversized content >500 KB rejected with 422), and rules injection (rules saved via `/admin/rules` appear in the system prompt on the next `/chat` call).
+- **`TestsPanel.jsx`**: New "Automated Tests" section in the admin panel. Triggers the backend pytest suite via `POST /admin/tests/run`. Displays a summary bar (passed / failed / total / elapsed) and a per-test results table with pass/fail dot, test name, duration, and error snippet on failure. Hover any row to see a tooltip describing what that test is verifying.
+- **`convert_updates_to_pdf.py`**: Utility script that renders `Milo Updates.md` to `Milo Updates.pdf`. Run after editing the changelog to keep the PDF in sync.
+- **Pre-send token & cost estimate**: As you type, a chip appears in the header showing the estimated input token count and projected cost (`~X tokens · ~$0.0000`). For Claude providers the count is exact (via `client.messages.count_tokens()`); for Ollama it is approximated at ~4 chars/token. Updates with a 400ms debounce and clears on send.
+- **Per-message token diagnostics**: Input token count (`X tokens in`) now appears right-aligned below each user message once the bot responds. Output token count and total tokens for the exchange appear below each bot response alongside the existing timing and cost chips.
+- **Session stats bar**: After the first reply a right-aligned stats box appears below the header showing: Msgs · Tokens In · Tokens Out · Total Tokens · Cost. Labels are centered under their values. Labeled "Session Total" to distinguish it from per-message metrics.
+- **Backend `/chat/estimate` endpoint**: `POST /chat/estimate` accepts the current message and recent history and returns exact or approximate token counts plus estimated cost. Used by the frontend estimate chip.
+- **Provider pricing constants**: Added `CLAUDE_PRICING` map and `_get_claude_pricing()` helper in `main.py`. All providers now return `input_tokens`, `output_tokens`, and `cost` in their SSE done event.
+- **`ThemedChat.jsx` base component**: Single shared component that renders the full chat UI (sidebar, header, message area, footer). All layout and feature logic lives here. Each theme is now a thin wrapper (~25 lines) that passes color palettes, greeting, login path, and a `layout` object for style overrides.
+- **Collapsible sidebar**: Hover near the right edge of the sidebar — it widens to a 20px click target highlighted in the theme accent color. Click to collapse. The collapsed 56px strip is fully tappable to expand. State persists to `localStorage`.
+
+### Changed
+- **Milo rules updated**: Default rule changed from `"start every message with 'ROSE'"` to `"end with a fun fact about cats"` — used to verify that admin-saved rules propagate correctly into the system prompt (and now exercised automatically by the rules injection test).
+- **Theme architecture**: The 5 sidebar themes (azure, lavender, stiff, stokt, crystals) are now thin wrappers around `ThemedChat.jsx`. Future feature additions only require editing one file.
+- **CPU metric removed** from per-message metrics row — too noisy.
+- **tokens/sec metric removed** from per-message metrics row — replaced by the token counts which are more useful.
+- **Azure light mode**: Darkened from near-white (`#eff6ff`) to a deeper steel blue (`#cce0ff → #b3cdfa`) with near-black navy text (`#0b1d38`) for significantly better contrast and less eye strain.
+- **Sidebar collapse button removed**: The small `‹` button in the MILO header has been removed. Collapsing is now done exclusively via the right-edge strip.
+
+### Fixed
+- **`Error: [object Object]` on first message**: Two root causes fixed. (1) `HistoryMessage` Pydantic model now allows `role: "system"` so the session-boundary sentinel `__reset_style__` no longer triggers a 422 validation error. (2) `chat.js` error handler now extracts `.msg` fields from FastAPI's array-formatted `detail` instead of letting it stringify as `[object Object]`.
+
+### Notes
+- The `ThemedChat.jsx` `layout` prop accepts: `borderWidth`, `bubbleRadius`, `inputRadius`, `inputGap`, `inputBorderless`, `sendFont`, `loadingText`, `loadingFont`, `loadingItalic`, `loadingColorKey`, `contentPadding`, `messageGap`, `messageFontSize`, `messageLineHeight`, `monoWeight`, `monoLetterSpacing`, `placeholder`. Crystals and stiff themes use several of these to preserve their distinct look.
+
+---
+
 ## [2026-06-17] PDF upload support, frozen model comparison table
 
 ### Added

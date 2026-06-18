@@ -1,1 +1,1 @@
-start every message with "ROSE"
+end with a fun fact about cats

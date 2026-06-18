@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useLocation } from 'react-router-dom'
 import { streamMessage } from '../utils/chat'
 
@@ -44,6 +44,13 @@ export function useMiloChat(greeting, useLibrary = true) {
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [status, setStatus] = useState(null)
+  const [estimate, setEstimate] = useState(null)
+  const [sessionStats, setSessionStats] = useState({ messageCount: 0, totalInputTokens: 0, totalOutputTokens: 0, totalCost: 0 })
+
+  const messagesRef = useRef(messages)
+  const estimateTimerRef = useRef(null)
+
+  useEffect(() => { messagesRef.current = messages }, [messages])
 
   // Keep model warm — ping every 4 minutes so the first response after idle stays fast
   useEffect(() => {
@@ -52,6 +59,33 @@ export function useMiloChat(greeting, useLibrary = true) {
     const id = setInterval(ping, 4 * 60 * 1000)
     return () => clearInterval(id)
   }, [])
+
+  // Debounced pre-send token estimate
+  useEffect(() => {
+    if (!input.trim()) {
+      setEstimate(null)
+      return
+    }
+    clearTimeout(estimateTimerRef.current)
+    estimateTimerRef.current = setTimeout(async () => {
+      const currentMessages = messagesRef.current
+      const history = currentMessages
+        .slice(-6)
+        .filter(m => m.role === 'user' || m.role === 'bot')
+        .map(m => ({ role: m.role === 'user' ? 'user' : 'assistant', text: m.text }))
+      try {
+        const res = await fetch(`${BACKEND}/chat/estimate`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: input.trim(), history }),
+        })
+        if (!res.ok) return
+        const data = await res.json()
+        setEstimate({ inputTokens: data.input_tokens, estimatedCost: data.estimated_cost })
+      } catch {}
+    }, 400)
+    return () => clearTimeout(estimateTimerRef.current)
+  }, [input])
 
   async function send() {
     const text = input.trim()
@@ -77,6 +111,7 @@ export function useMiloChat(greeting, useLibrary = true) {
     setInput('')
     setLoading(true)
     setStatus(null)
+    setEstimate(null)
 
     let accumulated = ''
 
@@ -93,6 +128,14 @@ export function useMiloChat(greeting, useLibrary = true) {
         setLoading(false)
         setStatus(null)
         persistSession(sid, final)
+        if (metrics) {
+          setSessionStats(prev => ({
+            messageCount: prev.messageCount + 1,
+            totalInputTokens: prev.totalInputTokens + (metrics.input_tokens ?? 0),
+            totalOutputTokens: prev.totalOutputTokens + (metrics.output_tokens ?? 0),
+            totalCost: prev.totalCost + (metrics.cost ?? 0),
+          }))
+        }
       },
       onError: (msg) => {
         const final = [...withUser, { role: 'bot', text: msg, metrics: null }]
@@ -106,6 +149,7 @@ export function useMiloChat(greeting, useLibrary = true) {
   function resetChat() {
     setSessionId(null)
     setMessages([{ role: 'bot', text: greeting }])
+    setSessionStats({ messageCount: 0, totalInputTokens: 0, totalOutputTokens: 0, totalCost: 0 })
   }
 
   function loadSession(id, savedMessages) {
@@ -119,7 +163,8 @@ export function useMiloChat(greeting, useLibrary = true) {
     })
     setSessionId(id)
     setMessages([{ role: 'bot', text: greeting }, ...withTimings])
+    setSessionStats({ messageCount: 0, totalInputTokens: 0, totalOutputTokens: 0, totalCost: 0 })
   }
 
-  return { messages, input, setInput, loading, status, send, resetChat, sessionId, loadSession }
+  return { messages, input, setInput, loading, status, send, resetChat, sessionId, loadSession, estimate, sessionStats }
 }

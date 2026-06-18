@@ -14,7 +14,11 @@ export async function streamMessage(message, useLibrary = true, history = [], { 
     clearTimeout(timer)
     if (!res.ok) {
       const data = await res.json().catch(() => ({}))
-      onError?.(`Error: ${data.detail ?? 'Something went wrong.'}`)
+      const detail = data.detail
+      const msg = Array.isArray(detail)
+        ? detail.map(e => e.msg ?? 'validation error').join(', ')
+        : (detail ?? 'Something went wrong.')
+      onError?.(`Error: ${msg}`)
       return
     }
     const reader = res.body.getReader()

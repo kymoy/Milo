@@ -65,6 +65,18 @@ CLAUDE_MODELS = [
     {"id": "claude-haiku-4-5-20251001", "label": "Claude Haiku 4.5"},
 ]
 
+CLAUDE_PRICING = {
+    "claude-haiku-4-5": {"input": 1.00, "output": 5.00},
+    "claude-sonnet-4-6": {"input": 3.00, "output": 15.00},
+    "claude-opus-4-8":   {"input": 5.00, "output": 25.00},
+}
+
+def _get_claude_pricing(model_id: str) -> dict:
+    for prefix, pricing in CLAUDE_PRICING.items():
+        if model_id.startswith(prefix):
+            return pricing
+    return {"input": 3.00, "output": 15.00}
+
 BASE_SYSTEM_PROMPT = "You are Milo, a helpful conversational assistant."
 
 CHATS_DIR        = Path(__file__).parent / "chats"
@@ -304,7 +316,7 @@ class LoginRequest(BaseModel):
 
 
 class HistoryMessage(BaseModel):
-    role: Literal["user", "assistant"]
+    role: Literal["user", "assistant", "system"]
     text: str
 
     @field_validator("text")
@@ -327,6 +339,26 @@ class ChatMessage(BaseModel):
         v = v.strip()
         if not v:
             raise ValueError("Message cannot be empty")
+        if len(v) > 2000:
+            raise ValueError("Message too long (max 2000 characters)")
+        return v
+
+    @field_validator("history")
+    @classmethod
+    def validate_history(cls, v):
+        if len(v) > 40:
+            raise ValueError("History too long (max 40 messages)")
+        return v
+
+
+class EstimateRequest(BaseModel):
+    message: str
+    history: list[HistoryMessage] = []
+
+    @field_validator("message")
+    @classmethod
+    def validate_message(cls, v):
+        v = v.strip()
         if len(v) > 2000:
             raise ValueError("Message too long (max 2000 characters)")
         return v
@@ -440,7 +472,9 @@ def ask_bedrock(messages: list[dict]) -> dict:
         elapsed_ms = round((time.time() - start) * 1000)
         cpu = round(psutil.cpu_percent(interval=None), 1)
         text = resp["output"]["message"]["content"][0]["text"].strip()
-
+        usage = resp.get("usage", {})
+        input_tokens = usage.get("inputTokens", None)
+        output_tokens = usage.get("outputTokens", None)
         sys_stats = get_system_stats()
         metrics = {
             "ts": time.time(),
@@ -448,6 +482,9 @@ def ask_bedrock(messages: list[dict]) -> dict:
             "response_ms": elapsed_ms,
             "cpu_percent": cpu,
             "tokens_per_sec": None,
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "cost": None,
             **sys_stats,
         }
         METRICS_HISTORY.append(metrics)
@@ -484,8 +521,11 @@ def ask_claude(messages: list[dict]) -> dict:
         elapsed_ms = round((time.time() - start) * 1000)
         cpu = round(psutil.cpu_percent(interval=None), 1)
         text = resp.content[0].text.strip()
+        input_tokens = resp.usage.input_tokens if resp.usage else 0
         output_tokens = resp.usage.output_tokens if resp.usage else 0
         tokens_per_sec = round(output_tokens / (elapsed_ms / 1000), 1) if elapsed_ms > 0 and output_tokens > 0 else None
+        pricing = _get_claude_pricing(claude_model)
+        cost = round((input_tokens / 1_000_000) * pricing["input"] + (output_tokens / 1_000_000) * pricing["output"], 6)
         sys_stats = get_system_stats()
         metrics = {
             "ts": time.time(),
@@ -493,6 +533,9 @@ def ask_claude(messages: list[dict]) -> dict:
             "response_ms": elapsed_ms,
             "cpu_percent": cpu,
             "tokens_per_sec": tokens_per_sec,
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "cost": cost,
             **sys_stats,
         }
         METRICS_HISTORY.append(metrics)
@@ -978,6 +1021,34 @@ def chat(body: ChatMessage):
     return {"reply": answer, "metrics": metrics}
 
 
+@app.post("/chat/estimate")
+def chat_estimate(body: EstimateRequest):
+    provider = get_active_provider()
+    if provider == "claude" and _ANTHROPIC_AVAILABLE:
+        api_key = get_claude_api_key()
+        if api_key:
+            try:
+                client = _anthropic_sdk.Anthropic(api_key=api_key)
+                claude_model = get_active_claude_model()
+                msgs = [{"role": h.role, "content": h.text} for h in body.history[-HISTORY_LIMIT:]]
+                msgs.append({"role": "user", "content": body.message})
+                count_resp = client.messages.count_tokens(
+                    model=claude_model,
+                    system=BASE_SYSTEM_PROMPT,
+                    messages=msgs,
+                )
+                input_tokens = count_resp.input_tokens
+                pricing = _get_claude_pricing(claude_model)
+                estimated_cost = round((input_tokens / 1_000_000) * pricing["input"], 6)
+                return {"input_tokens": input_tokens, "estimated_cost": estimated_cost, "provider": provider, "model": claude_model}
+            except Exception:
+                pass
+    # Fallback: character-based approximation (no cost for Ollama/Bedrock)
+    total_chars = len(body.message) + sum(len(h.text) for h in body.history)
+    input_tokens = max(1, total_chars // 4)
+    return {"input_tokens": input_tokens, "estimated_cost": None, "provider": provider, "model": get_active_model()}
+
+
 @app.post("/chat/stream")
 def chat_stream(body: ChatMessage):
     active_style = get_active_style(body.message, body.history)
@@ -1056,6 +1127,7 @@ def chat_stream(body: ChatMessage):
                 elapsed_ms = round((time.time() - start) * 1000)
                 cpu = round(psutil.cpu_percent(interval=None), 1)
                 tokens_per_sec = round(eval_count / (eval_duration_ns / 1e9), 1) if eval_duration_ns > 0 else None
+                prompt_chars = sum(len(m["content"]) for m in messages)
                 sys_stats = get_system_stats()
                 metrics = {
                     "ts": time.time(),
@@ -1063,6 +1135,9 @@ def chat_stream(body: ChatMessage):
                     "response_ms": elapsed_ms,
                     "cpu_percent": cpu,
                     "tokens_per_sec": tokens_per_sec,
+                    "input_tokens": max(1, prompt_chars // 4),
+                    "output_tokens": eval_count,
+                    "cost": None,
                     **sys_stats,
                 }
                 METRICS_HISTORY.append(metrics)
