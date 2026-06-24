@@ -1,7 +1,7 @@
 const BACKEND = 'http://localhost:8000'
 const TIMEOUT_MS = 120000
 
-export async function streamMessage(message, useLibrary = true, history = [], { onStatus, onToken, onDone, onError } = {}) {
+export async function streamMessage(message, useLibrary = true, history = [], { onStatus, onToken, onDone, onError, onSources } = {}) {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
   try {
@@ -37,6 +37,7 @@ export async function streamMessage(message, useLibrary = true, history = [], { 
         try {
           const event = JSON.parse(raw)
           if (event.type === 'status') onStatus?.(event.message)
+          else if (event.type === 'sources') onSources?.(event.names)
           else if (event.type === 'token') onToken?.(event.content)
           else if (event.type === 'done') onDone?.(event.metrics)
           else if (event.type === 'error') onError?.(event.message)

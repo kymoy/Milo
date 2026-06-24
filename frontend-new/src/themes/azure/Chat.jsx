@@ -7,10 +7,10 @@ const DARK = {
   userBubble: 'linear-gradient(135deg,#60a5fa,#1d4ed8)', botBubble: 'rgba(59,130,246,0.14)', botText: '#bcd9ff',
 }
 const LIGHT = {
-  bg: 'linear-gradient(135deg, #cce0ff 0%, #b3cdfa 100%)',
-  sidebar: '#a8c8f5', border: 'rgba(29,78,216,0.3)', text: '#0b1d38',
-  muted: '#1a4a8c', accent: '#1d4ed8', input: 'rgba(255,255,255,0.5)',
-  userBubble: 'linear-gradient(135deg,#3b82f6,#1d4ed8)', botBubble: 'rgba(255,255,255,0.42)', botText: '#0b1d38',
+  bg: 'linear-gradient(135deg, #5e8ec4 0%, #3d6fa8 100%)',
+  sidebar: '#4e7eb4', border: 'rgba(29,78,216,0.45)', text: '#071428',
+  muted: '#0d3570', accent: '#1d4ed8', input: 'rgba(255,255,255,0.38)',
+  userBubble: 'linear-gradient(135deg,#3b82f6,#1d4ed8)', botBubble: 'rgba(255,255,255,0.32)', botText: '#071428',
 }
 
 const GLOWS = [

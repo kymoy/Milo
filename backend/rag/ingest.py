@@ -125,10 +125,19 @@ def ingest_text(text: str, source_name: str) -> int:
         p_start += PARENT_SENTENCES - PARENT_OVERLAP
         p_idx += 1
 
-    if parent_ids:
-        parent_coll.add(documents=parent_docs, ids=parent_ids, metadatas=parent_metas)
-    if child_ids:
-        child_coll.add(documents=child_docs, ids=child_ids, metadatas=child_metas)
+    BATCH = 5000
+    for i in range(0, len(parent_ids), BATCH):
+        parent_coll.add(
+            documents=parent_docs[i:i+BATCH],
+            ids=parent_ids[i:i+BATCH],
+            metadatas=parent_metas[i:i+BATCH],
+        )
+    for i in range(0, len(child_ids), BATCH):
+        child_coll.add(
+            documents=child_docs[i:i+BATCH],
+            ids=child_ids[i:i+BATCH],
+            metadatas=child_metas[i:i+BATCH],
+        )
 
     return len(child_ids)
 

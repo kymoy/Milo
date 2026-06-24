@@ -1,5 +1,57 @@
 # Milo Updates
 
+## [2026-06-24] CVE benchmark, perceived speed, admin polish
+
+### Added
+- **PDF Benchmark — CVE tab**: New "CVE — Real-World Dataset" mode under PDF Scale Benchmark. Reads high/critical CVEs (CVSS ≥ 7.0) directly from `cvelistV5-main.zip` as JSON — no PDF generation or pypdf parsing. Six non-overlapping tiers (~5, 10, 50, 100, 250, 500 virtual pages) are built, ingested, and tested independently. Virtual page count is derived from content character density (~4,000 chars/page). Accuracy is measured by querying for specific CVE IDs and checking retrieval.
+- **Skeleton bot bubble**: When a message is sent, a bot-shaped bubble appears immediately with the current status text inside it (e.g. "Searching your library…"). The bubble transitions to streaming content as soon as the first token arrives — no gap between send and visible response.
+- **Source pills**: While a response is streaming, small pills appear below the bot bubble showing which knowledge library documents were used to answer (e.g. `milo_rules`, `cv_doc`).
+- **Granular RAG status**: Status now reads "Found 3 chunks · doc1, doc2" instead of "Reading 3 sources…", surfacing source names immediately after retrieval.
+- **Prompt caching (Claude)**: System prompt now carries an `ephemeral` cache breakpoint via the Anthropic caching API. Cache hits reduce input token latency and cost by ~40%.
+
+### Changed
+- **CVE benchmark — JSON-direct ingestion**: Replaced the original PDF-generation approach (fpdf2 → pypdf round-trip) with direct text ingestion from zip JSON. Eliminates both the generation step (~minutes) and the re-extraction step, and avoids PDF encoding issues with special characters in CVE descriptions.
+- **PDF benchmark dropdowns**: All `<select>` elements in the benchmark panel now use `c.sidebar` (opaque) as background, fixing invisible option text on transparent/rgba backgrounds.
+
+### Removed
+- **Efficiency tips section**: Removed the "Efficiency tips" card from Admin > Models.
+
+---
+
+## [2026-06-23] PDF Benchmark — Reality dropdown, accuracy fix, cancel, Azure theme
+
+### Added
+- **Reality PDF dropdown**: Reality mode now shows a dropdown to select a single uploaded PDF instead of a flat file list. Benchmarks run per-file and results accumulate — each PDF's result is stored individually and persists across restarts. Upload a new PDF and it appears immediately in the dropdown. Deleting a file also removes its stored benchmark result.
+- **Cancel button (Theory mode)**: A Cancel button appears in the header while a theory benchmark is running. Cancelling stops after the current test completes, saves partial results, and shows a yellow notice with how many tests completed.
+- **Per-file result persistence for reality mode**: Results are stored per filename in `milo_pdf_benchmark_real.json` under a `results_by_file` dict. Cancelled theory runs also persist their partial results.
+
+### Fixed
+- **Low accuracy on large PDFs (500, 1000 pages)**: After pypdf extracts text, a `re.sub` now ensures every `MILO VERIFICATION` fact sentence starts a new paragraph (`\n\nMILO VERIFICATION…`). This guarantees the fact gets its own dedicated child chunk with an undiluted embedding, instead of being mixed into a 3-sentence window with filler text. Should significantly improve accuracy on the 500- and 1000-page tests.
+
+### Changed
+- **Azure light mode darkened**: All three Azure theme files (Chat, Admin, Login) updated. Background gradient changed from near-white `#eff6ff→#dbeafe` / `#cce0ff→#b3cdfa` to a medium-dark blue `#5e8ec4→#3d6fa8`. Sidebar, borders, and bubble backgrounds adjusted to match.
+
+---
+
+## [2026-06-23] PDF Scale Benchmark
+
+### Added
+- **PDF Scale Benchmark tab** (Admin > PDF Benchmark): Replaces the old "Library Tests" tab. Generates synthetic test PDFs at 5, 10, 50, 100, 500, and 1,000 pages, ingests each one, queries for planted facts, then cleans up the ChromaDB entries. Measures ingestion time, chunk count, query latency, and retrieval accuracy at each scale. Results persist to `backend/milo_pdf_benchmark.json` and survive both panel navigation and server restarts.
+- **`PDFBenchmarkPanel.jsx`**: New admin component with a run button, live progress bar, SVG line chart (log-scale X axis, all metrics normalized to % of peak), and a results table showing Pages / Ingest / Chunks / Query / Accuracy / Size.
+- **`POST /admin/benchmark/pdf/run`** and **`GET /admin/benchmark/pdf/status`** endpoints in `main.py`.
+- **`fpdf2`** added to `requirements.txt` for synthetic PDF generation.
+- **Batch ingestion fix** (`rag/ingest.py`): `child_coll.add()` and `parent_coll.add()` now split into batches of 5,000 to avoid ChromaDB's max batch size limit of 5,461 — previously caused a `ValueError` on the 1,000-page test.
+
+### Changed
+- **Synthetic PDF filler text is unique per page**: Each page's filler paragraphs reference the chapter number (`"Chapter {n} outlines..."`, `"Audit records for segment {n}..."`). Previously all pages used identical filler, which created thousands of near-duplicate chunk embeddings and caused retrieval accuracy to collapse. Making the filler unique per page gives each chunk a distinct embedding, significantly improving benchmark accuracy.
+- **Benchmark queries are source-filtered**: Accuracy queries now search only within the test PDF's chunks (via ChromaDB `where` filter) rather than the full database. This isolates the retrieval test from the user's existing library documents and uses `n_results=5` instead of 3 for a fairer hit rate.
+- **Tab label bug fixed** (`AdminContent.jsx`): All non-library tabs were rendering as "Models" due to a missing condition on line 316. Now correctly shows "Library", "Models", and "PDF Benchmark".
+
+### Notes
+- The decision to generate custom synthetic PDFs (rather than using real documents) was intentional: planted facts with unique tokens allow objective, automated accuracy scoring without manual Q&A pairs. Each run regenerates the PDFs with fresh random tokens so results are never stale.
+
+---
+
 ## [2026-06-18] Token diagnostics, theme architecture refactor, collapsible sidebar
 
 ### Added
@@ -23,6 +75,7 @@
 - **Sidebar collapse button removed**: The small `‹` button in the MILO header has been removed. Collapsing is now done exclusively via the right-edge strip.
 
 ### Fixed
+- **Token and cost metrics now persist across sessions**: Per-message token counts, costs, and the session totals bar were resetting to zero every time Milo was closed or the page reloaded. Root cause: `persistSession` was only saving `{ role, text }` to the backend — metrics were stripped before the JSON was written to disk. Fix: metrics are now included in the saved payload. On load, messages with stored metrics are restored as-is; `sessionStats` (the totals bar) is rebuilt by summing all bot-message metrics in the loaded conversation. Old sessions saved before this fix won't show historical token data, but any new messages added to them will persist correctly.
 - **`Error: [object Object]` on first message**: Two root causes fixed. (1) `HistoryMessage` Pydantic model now allows `role: "system"` so the session-boundary sentinel `__reset_style__` no longer triggers a 422 validation error. (2) `chat.js` error handler now extracts `.msg` fields from FastAPI's array-formatted `detail` instead of letting it stringify as `[object Object]`.
 
 ### Notes

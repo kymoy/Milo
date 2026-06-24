@@ -8,7 +8,7 @@ const SERIF  = { fontFamily: "'Cormorant Garamond', Georgia, serif", fontWeight:
 const MONO_U = { fontFamily: "'Inter', system-ui, sans-serif", fontWeight: 200, letterSpacing: '5px', textTransform: 'uppercase' }
 
 const DARK  = { bg: 'linear-gradient(135deg, #0d1b35 0%, #162040 100%)', card: 'rgba(96,165,250,0.08)', border: 'rgba(96,165,250,0.3)', text: '#e8f0ff', muted: '#90b8f0', accent: '#60a5fa', btnGrad: 'linear-gradient(135deg, #60a5fa, #1d4ed8)' }
-const LIGHT = { bg: 'linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)', card: 'rgba(59,130,246,0.07)', border: 'rgba(59,130,246,0.3)', text: '#1e3a5f', muted: '#3b6cb0', accent: '#1d4ed8', btnGrad: 'linear-gradient(135deg, #60a5fa, #1d4ed8)' }
+const LIGHT = { bg: 'linear-gradient(135deg, #5e8ec4 0%, #3d6fa8 100%)', card: 'rgba(255,255,255,0.18)', border: 'rgba(29,78,216,0.45)', text: '#071428', muted: '#0d3570', accent: '#1d4ed8', btnGrad: 'linear-gradient(135deg, #60a5fa, #1d4ed8)' }
 
 const GLOWS = [
   { top: '-10%', left: '20%',  size: '500px', color: 'rgba(59,130,246,0.12)', blur: '100px' },

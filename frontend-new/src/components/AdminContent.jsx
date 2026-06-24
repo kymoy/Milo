@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import DiagnosticsPanel from './DiagnosticsPanel'
-import TestsPanel from './TestsPanel'
+import PDFBenchmarkPanel from './PDFBenchmarkPanel'
 
 const BACKEND = 'http://localhost:8000'
 
@@ -296,7 +296,7 @@ export default function AdminContent({ c, admin }) {
 
   const saveDisabled = !sourceName.trim() || !content.trim() || creating
 
-  const TABS = ['library', 'models', 'library tests']
+  const TABS = ['library', 'models', 'pdf benchmark']
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
@@ -313,7 +313,7 @@ export default function AdminContent({ c, admin }) {
               borderBottom: `2px solid ${active ? c.accent : 'transparent'}`,
               marginBottom: '-1px', transition: 'color 0.15s, border-color 0.15s',
             }}>
-              {t === 'library' ? 'Library' : 'Models'}
+              {t === 'library' ? 'Library' : t === 'models' ? 'Models' : 'PDF Benchmark'}
             </button>
           )
         })}
@@ -737,33 +737,9 @@ export default function AdminContent({ c, admin }) {
           </div>
         </div>
 
-        {/* Efficiency tips */}
-        <div style={{ background: c.botBubble ?? c.input, border: `1px solid ${c.border}`, borderRadius: '12px', padding: '24px' }}>
-          <div style={{ ...MONO_U, fontSize: '11px', color: c.accent, marginBottom: '14px' }}>Efficiency tips</div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-            {[
-              { tip: 'Switch to a quantized model', cmd: 'ollama pull llama3.1:8b-q4_K_M', detail: 'Cuts VRAM from ~8 GB to ~5 GB with minimal quality loss. Run in terminal then update OLLAMA_MODEL in main.py.' },
-              { tip: 'keep_alive is active', cmd: null, detail: 'Model stays loaded in VRAM for 10 min between requests — cold-start cost already eliminated.', done: true },
-              { tip: 'num_ctx is set to 4096', cmd: null, detail: 'Context window capped at 4K tokens, reducing VRAM pressure without affecting typical conversations.', done: true },
-              { tip: 'Monitor VRAM closely', cmd: 'nvidia-smi', detail: 'If VRAM used ≈ VRAM total the model spills into RAM and generation speed drops sharply.' },
-            ].map(({ tip, cmd, detail, done }) => (
-              <div key={tip} style={{ display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
-                <div style={{ width: '18px', height: '18px', borderRadius: '50%', border: `1px solid ${done ? '#4ade80' : c.border}`, background: done ? 'rgba(74,222,128,0.12)' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: '2px' }}>
-                  {done && <span style={{ color: '#4ade80', fontSize: '11px' }}>✓</span>}
-                </div>
-                <div>
-                  <div style={{ ...SERIF, fontSize: '15px', color: done ? '#4ade80' : c.text }}>{tip}</div>
-                  <div style={{ ...SERIF, fontSize: '14px', color: c.text, marginTop: '2px' }}>{detail}</div>
-                  {cmd && <code style={{ ...MONO, fontSize: '12px', color: c.accent, background: `${c.accent}12`, padding: '2px 8px', borderRadius: '4px', display: 'inline-block', marginTop: '4px' }}>{cmd}</code>}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-
       </>}
 
-      {activeTab === 'library tests' && <TestsPanel c={c} />}
+      {activeTab === 'pdf benchmark' && <PDFBenchmarkPanel c={c} />}
 
       {/* RAM pie tooltip */}
       {ramHoverModel && (() => {

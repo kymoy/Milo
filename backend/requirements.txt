@@ -3,3 +3,4 @@ uvicorn[standard]
 psutil
 python-multipart
 pypdf
+fpdf2

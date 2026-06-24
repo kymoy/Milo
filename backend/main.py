@@ -4,6 +4,9 @@ import json
 import uuid
 import subprocess
 import time
+import threading
+import zipfile
+import random as _random
 from datetime import datetime, timezone
 from pathlib import Path
 from collections import deque
@@ -24,17 +27,23 @@ except ImportError:
     _PYPDF_AVAILABLE = False
 
 try:
+    from fpdf import FPDF as _FPDF
+    _FPDF_AVAILABLE = True
+except ImportError:
+    _FPDF_AVAILABLE = False
+
+try:
     import anthropic as _anthropic_sdk
     _ANTHROPIC_AVAILABLE = True
 except Exception:
     _ANTHROPIC_AVAILABLE = False
-from fastapi import FastAPI, HTTPException, UploadFile, File
+from fastapi import FastAPI, HTTPException, UploadFile, File, BackgroundTasks
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, field_validator
 from typing import Literal
 from rag.retrieve import retrieve, build_context
-from rag.ingest import ingest_text, list_sources, delete_source, get_source_chunks
+from rag.ingest import ingest_text, list_sources, delete_source, get_source_chunks, _get_collection as _get_child_coll
 
 app = FastAPI(title="Milo")
 
@@ -87,7 +96,79 @@ PROVIDER_PATH    = Path(__file__).parent / "milo_provider.txt"
 METRICS_PATH     = Path(__file__).parent / "milo_metrics.json"
 BENCHMARK_PATH   = Path(__file__).parent / "milo_benchmarks.json"
 RAM_SNAPSHOTS_PATH   = Path(__file__).parent / "milo_ram_snapshots.json"
-CLAUDE_MODEL_PATH    = Path(__file__).parent / "milo_claude_model.txt"
+CLAUDE_MODEL_PATH        = Path(__file__).parent / "milo_claude_model.txt"
+PDF_BENCHMARK_PATH       = Path(__file__).parent / "milo_pdf_benchmark.json"
+PDF_BENCHMARK_REAL_PATH  = Path(__file__).parent / "milo_pdf_benchmark_real.json"
+
+TEST_PDFS_DIR       = Path(__file__).parent.parent / "Test PDFs"
+REAL_PDFS_DIR       = Path(__file__).parent.parent / "Test PDFs" / "real"
+PDF_BENCHMARK_SIZES = [5, 10, 50, 100, 500, 1000, 2000, 5000]
+
+def _load_pdf_benchmark() -> dict:
+    if PDF_BENCHMARK_PATH.exists():
+        try:
+            saved = json.loads(PDF_BENCHMARK_PATH.read_text(encoding="utf-8"))
+            if saved.get("status") not in ("done", "cancelled"):
+                saved["status"] = "done"
+            saved["current_test"] = None
+            saved.setdefault("total", len(PDF_BENCHMARK_SIZES))
+            return saved
+        except Exception:
+            pass
+    return {"status": "idle", "progress": 0, "total": len(PDF_BENCHMARK_SIZES), "current_test": None, "results": []}
+
+_pdf_benchmark: dict = _load_pdf_benchmark()
+_pdf_bench_cancel = threading.Event()
+
+def _load_pdf_benchmark_real() -> dict:
+    if PDF_BENCHMARK_REAL_PATH.exists():
+        try:
+            saved = json.loads(PDF_BENCHMARK_REAL_PATH.read_text(encoding="utf-8"))
+            by_file = saved.get("results_by_file", {})
+            return {
+                "status": "done" if by_file else "idle",
+                "current_test": None,
+                "results_by_file": by_file,
+                "results": list(by_file.values()),
+            }
+        except Exception:
+            pass
+    return {"status": "idle", "current_test": None, "results_by_file": {}, "results": []}
+
+_pdf_benchmark_real: dict = _load_pdf_benchmark_real()
+
+REALITY_QUERIES = [
+    "What is the main topic discussed in this document?",
+    "What are the key findings or conclusions in this text?",
+    "What important information is covered in this document?",
+]
+
+PDF_BENCHMARK_CVE_PATH = Path(__file__).parent / "milo_pdf_benchmark_cve.json"
+CHARS_PER_PAGE = 4000  # ~80 chars/line × 50 lines on A4 at 9pt
+CVE_TIERS = [
+    {"name": "cve_005pg", "cve_count": 30},
+    {"name": "cve_010pg", "cve_count": 60},
+    {"name": "cve_050pg", "cve_count": 300},
+    {"name": "cve_100pg", "cve_count": 600},
+    {"name": "cve_250pg", "cve_count": 1500},
+    {"name": "cve_500pg", "cve_count": 3000},
+]
+
+def _load_cve_benchmark() -> dict:
+    if PDF_BENCHMARK_CVE_PATH.exists():
+        try:
+            saved = json.loads(PDF_BENCHMARK_CVE_PATH.read_text(encoding="utf-8"))
+            if saved.get("status") not in ("done", "cancelled"):
+                saved["status"] = "done"
+            saved["current_test"] = None
+            saved.setdefault("total", len(CVE_TIERS))
+            return saved
+        except Exception:
+            pass
+    return {"status": "idle", "progress": 0, "total": len(CVE_TIERS), "current_test": None, "results": []}
+
+_cve_benchmark: dict = _load_cve_benchmark()
+_cve_bench_cancel = threading.Event()
 
 BENCHMARK_SPEED_PROMPT = "Count from 1 to 30, putting each number on its own line. Do not add any other text."
 BENCHMARK_ACCURACY_PROMPTS = [
@@ -516,7 +597,9 @@ def ask_claude(messages: list[dict]) -> dict:
             "messages": [{"role": m["role"], "content": m["content"]} for m in convo_msgs],
         }
         if system_msgs:
-            kwargs["system"] = system_msgs[0]["content"]
+            kwargs["system"] = [
+                {"type": "text", "text": system_msgs[0]["content"], "cache_control": {"type": "ephemeral"}}
+            ]
         resp = client.messages.create(**kwargs)
         elapsed_ms = round((time.time() - start) * 1000)
         cpu = round(psutil.cpu_percent(interval=None), 1)
@@ -893,6 +976,454 @@ def admin_create(body: CreateDocRequest):
     return {"source": body.source_name, "chunks": chunks}
 
 
+def _generate_test_pdf(pages: int, facts: dict) -> Path:
+    """Generate a synthetic test PDF with planted verification facts. Returns path."""
+    FILLER = (
+        "Chapter {n} outlines the operational scope for the corresponding processing segment. "
+        "Service components assigned to section {n} handle request routing and load distribution. "
+        "The configuration schema for chapter {n} defines threshold values for alerting and retry logic. "
+        "Audit records associated with segment {n} are retained for a minimum of ninety days. "
+        "During the {n}th operational cycle, validation checks confirmed system integrity across all nodes. "
+        "Telemetry data captured in section {n} feeds into the central monitoring aggregator. "
+        "The review cadence for chapter {n} aligns with the quarterly compliance schedule. "
+    )
+    TEST_PDFS_DIR.mkdir(parents=True, exist_ok=True)
+    out_path = TEST_PDFS_DIR / f"milo_test_{pages}pages.pdf"
+    pdf = _FPDF()
+    pdf.set_auto_page_break(auto=True, margin=15)
+    for page_n in range(1, pages + 1):
+        pdf.add_page()
+        pdf.set_font("Helvetica", "B", 13)
+        pdf.multi_cell(0, 8, f"Chapter {page_n}: System Overview")
+        pdf.set_font("Helvetica", "", 10)
+        pdf.ln(3)
+        pdf.multi_cell(0, 6, FILLER.format(n=page_n))
+        pdf.ln(2)
+        pdf.multi_cell(0, 6, FILLER.format(n=page_n))
+        if page_n in facts:
+            pdf.ln(4)
+            pdf.set_font("Helvetica", "B", 10)
+            pdf.multi_cell(0, 7, f"MILO VERIFICATION: The secret phrase for section {page_n} is {facts[page_n]}.")
+            pdf.set_font("Helvetica", "", 10)
+    pdf.output(str(out_path))
+    return out_path
+
+
+def _run_pdf_benchmark() -> None:
+    global _pdf_benchmark
+    _pdf_bench_cancel.clear()
+    FACT_PAGES = {
+        5:    [2, 4],
+        10:   [3, 8],
+        50:   [10, 25, 40],
+        100:  [10, 50, 90],
+        500:  [50, 250, 450],
+        1000: [100, 500, 900],
+        2000: [200, 1000, 1800],
+        5000: [500, 2500, 4500],
+    }
+    for i, pages in enumerate(PDF_BENCHMARK_SIZES):
+        if _pdf_bench_cancel.is_set():
+            break
+        source_name = f"__milo_bench_{pages}"
+        result: dict = {"pages": pages}
+        try:
+            fact_tokens = {p: uuid.uuid4().hex[:8].upper() for p in FACT_PAGES[pages]}
+            _pdf_benchmark["current_test"] = f"Generating {pages}-page PDF…"
+            pdf_path = _generate_test_pdf(pages, fact_tokens)
+            result["file_size_kb"] = round(pdf_path.stat().st_size / 1024, 1)
+
+            _pdf_benchmark["current_test"] = f"Ingesting {pages}-page PDF…"
+            with open(pdf_path, "rb") as fh:
+                reader = PdfReader(fh)
+                raw_text = "\n".join(pg.extract_text() or "" for pg in reader.pages)
+            # Ensure planted fact sentences are isolated paragraphs so they form
+            # their own child chunks instead of being diluted by filler text.
+            raw_text = re.sub(r'(?<!\n)MILO VERIFICATION', '\n\nMILO VERIFICATION', raw_text)
+            t0 = time.perf_counter()
+            chunk_count = ingest_text(raw_text, source_name)
+            result["ingestion_time_s"] = round(time.perf_counter() - t0, 2)
+            result["chunk_count"] = chunk_count
+
+            _pdf_benchmark["current_test"] = f"Querying {pages}-page PDF…"
+            latencies: list[float] = []
+            facts_found = 0
+            ctx_chars = 0
+            child_coll = _get_child_coll()
+            for page_n, token in fact_tokens.items():
+                t1 = time.perf_counter()
+                qr = child_coll.query(
+                    query_texts=[f"What is the secret phrase for section {page_n}?"],
+                    n_results=5,
+                    where={"source": source_name},
+                    include=["documents"],
+                )
+                latencies.append((time.perf_counter() - t1) * 1000)
+                block = " ".join(qr["documents"][0])
+                ctx_chars += len(block)
+                if token in block:
+                    facts_found += 1
+
+            result["avg_query_latency_ms"] = round(sum(latencies) / len(latencies), 1) if latencies else 0
+            result["accuracy_pct"] = round(facts_found / len(fact_tokens) * 100, 1)
+            result["facts_planted"] = len(fact_tokens)
+            result["facts_found"] = facts_found
+            result["context_chars_avg"] = round(ctx_chars / len(latencies)) if latencies else 0
+        except Exception as exc:
+            result["error"] = str(exc)
+        finally:
+            try:
+                delete_source(source_name)
+            except Exception:
+                pass
+        _pdf_benchmark["results"].append(result)
+        _pdf_benchmark["progress"] = i + 1
+
+    _pdf_benchmark["status"] = "cancelled" if _pdf_bench_cancel.is_set() else "done"
+    _pdf_benchmark["current_test"] = None
+    try:
+        PDF_BENCHMARK_PATH.write_text(json.dumps(_pdf_benchmark, indent=2), encoding="utf-8")
+    except Exception:
+        pass
+
+
+@app.post("/admin/benchmark/pdf/run")
+def start_pdf_benchmark(background_tasks: BackgroundTasks):
+    if not _FPDF_AVAILABLE:
+        raise HTTPException(status_code=500, detail="PDF generation requires fpdf2. Run: pip install fpdf2")
+    if not _PYPDF_AVAILABLE:
+        raise HTTPException(status_code=500, detail="PDF reading requires pypdf. Run: pip install pypdf")
+    if _pdf_benchmark["status"] == "running":
+        raise HTTPException(status_code=409, detail="Benchmark already running.")
+    _pdf_benchmark.update(status="running", progress=0, results=[], current_test=None)
+    background_tasks.add_task(_run_pdf_benchmark)
+    return {"status": "started"}
+
+
+@app.post("/admin/benchmark/pdf/cancel")
+def cancel_pdf_benchmark():
+    if _pdf_benchmark["status"] != "running":
+        raise HTTPException(status_code=409, detail="No benchmark running.")
+    _pdf_bench_cancel.set()
+    _pdf_benchmark["current_test"] = "Cancelling after current test…"
+    return {"status": "cancelling"}
+
+
+@app.get("/admin/benchmark/pdf/status")
+def get_pdf_benchmark_status():
+    return _pdf_benchmark
+
+
+def _run_pdf_benchmark_real_file(filename: str) -> None:
+    global _pdf_benchmark_real
+    pdf_path = REAL_PDFS_DIR / filename
+    source_name = f"__milo_bench_real_{re.sub(r'[^\w]', '_', pdf_path.stem)}"
+    result: dict = {"filename": filename}
+    child_coll = _get_child_coll()
+    try:
+        _pdf_benchmark_real["current_test"] = f"Ingesting {filename}…"
+        with open(pdf_path, "rb") as fh:
+            reader = PdfReader(fh)
+            page_count = len(reader.pages)
+            raw_text = "\n".join(pg.extract_text() or "" for pg in reader.pages)
+        result["pages"] = page_count
+        result["file_size_kb"] = round(pdf_path.stat().st_size / 1024, 1)
+        t0 = time.perf_counter()
+        chunk_count = ingest_text(raw_text, source_name)
+        result["ingestion_time_s"] = round(time.perf_counter() - t0, 2)
+        result["chunk_count"] = chunk_count
+        _pdf_benchmark_real["current_test"] = f"Querying {filename}…"
+        latencies: list[float] = []
+        for query in REALITY_QUERIES:
+            t1 = time.perf_counter()
+            child_coll.query(
+                query_texts=[query],
+                n_results=5,
+                where={"source": source_name},
+                include=["documents"],
+            )
+            latencies.append((time.perf_counter() - t1) * 1000)
+        result["avg_query_latency_ms"] = round(sum(latencies) / len(latencies), 1) if latencies else 0
+    except Exception as exc:
+        result["error"] = str(exc)
+    finally:
+        try:
+            delete_source(source_name)
+        except Exception:
+            pass
+    _pdf_benchmark_real["results_by_file"][filename] = result
+    _pdf_benchmark_real["results"] = list(_pdf_benchmark_real["results_by_file"].values())
+    _pdf_benchmark_real["status"] = "done"
+    _pdf_benchmark_real["current_test"] = None
+    try:
+        PDF_BENCHMARK_REAL_PATH.write_text(json.dumps({
+            "results_by_file": _pdf_benchmark_real["results_by_file"],
+        }, indent=2), encoding="utf-8")
+    except Exception:
+        pass
+
+
+@app.get("/admin/benchmark/real/list")
+def list_real_pdfs():
+    REAL_PDFS_DIR.mkdir(parents=True, exist_ok=True)
+    files = []
+    for p in sorted(REAL_PDFS_DIR.glob("*.pdf")):
+        try:
+            with open(p, "rb") as fh:
+                pages = len(PdfReader(fh).pages)
+        except Exception:
+            pages = None
+        files.append({"filename": p.name, "pages": pages, "size_kb": round(p.stat().st_size / 1024, 1)})
+    return {"files": files}
+
+
+@app.post("/admin/benchmark/real/upload")
+async def upload_real_pdf(file: UploadFile = File(...)):
+    if not file.filename.endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Only .pdf files are supported.")
+    if not _PYPDF_AVAILABLE:
+        raise HTTPException(status_code=500, detail="PDF support requires pypdf.")
+    REAL_PDFS_DIR.mkdir(parents=True, exist_ok=True)
+    content = await file.read()
+    try:
+        import io as _io
+        reader = PdfReader(_io.BytesIO(content))
+        page_count = len(reader.pages)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Could not read PDF: {e}")
+    safe_name = re.sub(r'[^\w\-.]', '_', file.filename)
+    (REAL_PDFS_DIR / safe_name).write_bytes(content)
+    return {"filename": safe_name, "pages": page_count, "size_kb": round(len(content) / 1024, 1)}
+
+
+@app.delete("/admin/benchmark/real/files/{filename}")
+def delete_real_pdf(filename: str):
+    safe = re.sub(r'[^\w\-.]', '_', filename)
+    path = REAL_PDFS_DIR / safe
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="File not found.")
+    path.unlink()
+    _pdf_benchmark_real["results_by_file"].pop(safe, None)
+    _pdf_benchmark_real["results"] = list(_pdf_benchmark_real["results_by_file"].values())
+    try:
+        PDF_BENCHMARK_REAL_PATH.write_text(json.dumps({
+            "results_by_file": _pdf_benchmark_real["results_by_file"],
+        }, indent=2), encoding="utf-8")
+    except Exception:
+        pass
+    return {"deleted": safe}
+
+
+class RealRunRequest(BaseModel):
+    filename: str
+
+
+@app.post("/admin/benchmark/real/run")
+def start_real_benchmark(req: RealRunRequest, background_tasks: BackgroundTasks):
+    if not _PYPDF_AVAILABLE:
+        raise HTTPException(status_code=500, detail="PDF reading requires pypdf.")
+    if _pdf_benchmark_real["status"] == "running":
+        raise HTTPException(status_code=409, detail="Benchmark already running.")
+    safe = re.sub(r'[^\w\-.]', '_', req.filename)
+    if not (REAL_PDFS_DIR / safe).exists():
+        raise HTTPException(status_code=404, detail="File not found.")
+    _pdf_benchmark_real["status"] = "running"
+    _pdf_benchmark_real["current_test"] = None
+    background_tasks.add_task(_run_pdf_benchmark_real_file, safe)
+    return {"status": "started"}
+
+
+@app.get("/admin/benchmark/real/status")
+def get_real_benchmark_status():
+    return _pdf_benchmark_real
+
+
+# ── CVE benchmark ─────────────────────────────────────────────────────────────
+
+def _cve_cvss(data):
+    best = 0.0
+    containers = data.get("containers", {})
+    for src in [containers.get("cna", {})] + containers.get("adp", []):
+        for m in src.get("metrics", []):
+            for key in ("cvssV4_0", "cvssV3_1", "cvssV3_0", "cvssV2_0"):
+                if key in m:
+                    try: best = max(best, float(m[key].get("baseScore", 0)))
+                    except: pass
+    return best
+
+def _cve_desc(data):
+    try:
+        for d in data["containers"]["cna"].get("descriptions", []):
+            if d.get("lang", "").startswith("en"):
+                return d.get("value", "").strip()
+    except: pass
+    return ""
+
+def _cve_affected(data):
+    try:
+        parts = []
+        for a in data["containers"]["cna"].get("affected", [])[:4]:
+            vendor, product = a.get("vendor", ""), a.get("product", "")
+            if vendor.lower() in ("n/a", "na", "unknown", ""):
+                if product: parts.append(product)
+            elif product:
+                parts.append(f"{vendor} {product}")
+        return "; ".join(parts[:4])
+    except: return ""
+
+
+def _run_cve_benchmark() -> None:
+    """Scan the CVE zip directly, ingest each tier as plain text, test accuracy.
+    Virtual page count = total content chars / CHARS_PER_PAGE (no PDF generation or parsing)."""
+    global _cve_benchmark
+    _cve_bench_cancel.clear()
+
+    zips = sorted(REAL_PDFS_DIR.glob("cvelistV5*.zip"), key=lambda p: p.stat().st_size, reverse=True)
+    if not zips:
+        _cve_benchmark.update(status="error", current_test="No cvelistV5*.zip found in Test PDFs/real/.")
+        return
+    zip_path = zips[0]
+
+    total_needed = sum(t["cve_count"] for t in CVE_TIERS)
+    _cve_benchmark["current_test"] = f"Scanning {zip_path.name}…"
+
+    entries = []
+    try:
+        with zipfile.ZipFile(zip_path) as zf:
+            json_files = [n for n in zf.namelist() if n.endswith(".json") and "/cves/" in n]
+            for name in json_files:
+                if len(entries) >= total_needed * 2:
+                    break
+                if _cve_bench_cancel.is_set():
+                    break
+                try:
+                    with zf.open(name) as fh:
+                        data = json.load(fh)
+                    if data.get("cveMetadata", {}).get("state") != "PUBLISHED":
+                        continue
+                    score = _cve_cvss(data)
+                    if score < 7.0:
+                        continue
+                    desc = _cve_desc(data)
+                    if not desc:
+                        continue
+                    entries.append({
+                        "id":       data["cveMetadata"]["cveId"],
+                        "score":    score,
+                        "sev":      "CRITICAL" if score >= 9.0 else "HIGH",
+                        "desc":     desc,
+                        "affected": _cve_affected(data),
+                    })
+                except Exception:
+                    pass
+    except Exception as e:
+        _cve_benchmark.update(status="error", current_test=f"Could not read zip: {e}")
+        return
+
+    if _cve_bench_cancel.is_set():
+        _cve_benchmark.update(status="cancelled", current_test=None)
+        return
+
+    if len(entries) < total_needed:
+        _cve_benchmark.update(status="error", current_test=f"Only {len(entries)} qualifying CVEs found; need {total_needed}.")
+        return
+
+    _random.seed(42)
+    _random.shuffle(entries)
+
+    _cve_benchmark["total"] = len(CVE_TIERS)
+    child_coll = _get_child_coll()
+    offset = 0
+
+    for i, t in enumerate(CVE_TIERS):
+        if _cve_bench_cancel.is_set():
+            break
+        tier_cves = entries[offset: offset + t["cve_count"]]
+        offset += t["cve_count"]
+
+        # Build plain-text corpus — same content that would have gone into a PDF
+        text_blocks = []
+        for e in tier_cves:
+            lines = [f"{e['id']}  [{e['sev']}  {e['score']:.1f}]"]
+            if e["affected"]:
+                lines.append(f"Affects: {e['affected']}")
+            lines.append(e["desc"])
+            text_blocks.append("\n".join(lines))
+        full_text     = "\n\n".join(text_blocks)
+        virtual_pages = max(1, round(len(full_text) / CHARS_PER_PAGE))
+
+        source_name = f"__milo_cve_{t['name']}"
+        result: dict = {
+            "pages":     virtual_pages,
+            "tier":      t["name"],
+            "cve_count": len(tier_cves),
+        }
+        try:
+            _cve_benchmark["current_test"] = f"Ingesting {t['name']} ({virtual_pages} virtual pages, {len(tier_cves)} CVEs)…"
+            t0 = time.perf_counter()
+            chunk_count = ingest_text(full_text, source_name)
+            result["ingestion_time_s"] = round(time.perf_counter() - t0, 2)
+            result["chunk_count"]      = chunk_count
+            result["file_size_kb"]     = round(len(full_text.encode()) / 1024, 1)
+
+            _cve_benchmark["current_test"] = f"Querying {t['name']}…"
+            latencies: list[float] = []
+            facts_found = 0
+            for e in tier_cves[:3]:
+                t1 = time.perf_counter()
+                qr = child_coll.query(
+                    query_texts=[f"What is the CVSS score for {e['id']}?"],
+                    n_results=5,
+                    where={"source": source_name},
+                    include=["documents"],
+                )
+                latencies.append((time.perf_counter() - t1) * 1000)
+                if e["id"] in " ".join(qr["documents"][0]):
+                    facts_found += 1
+
+            result["avg_query_latency_ms"] = round(sum(latencies) / len(latencies), 1) if latencies else 0
+            result["facts_planted"]        = min(3, len(tier_cves))
+            result["facts_found"]          = facts_found
+            result["accuracy_pct"]         = round(facts_found / result["facts_planted"] * 100, 1)
+        except Exception as exc:
+            result["error"] = str(exc)
+        finally:
+            try: delete_source(source_name)
+            except: pass
+
+        _cve_benchmark["results"].append(result)
+        _cve_benchmark["progress"] = i + 1
+
+    _cve_benchmark["status"] = "cancelled" if _cve_bench_cancel.is_set() else "done"
+    _cve_benchmark["current_test"] = None
+    try:
+        PDF_BENCHMARK_CVE_PATH.write_text(json.dumps(_cve_benchmark, indent=2), encoding="utf-8")
+    except: pass
+
+
+@app.post("/admin/benchmark/cve/run")
+def start_cve_benchmark(background_tasks: BackgroundTasks):
+    if _cve_benchmark["status"] == "running":
+        raise HTTPException(status_code=409, detail="CVE benchmark already running.")
+    _cve_benchmark.update(status="running", progress=0, results=[], current_test=None)
+    background_tasks.add_task(_run_cve_benchmark)
+    return {"status": "started"}
+
+
+@app.post("/admin/benchmark/cve/cancel")
+def cancel_cve_benchmark():
+    if _cve_benchmark["status"] != "running":
+        raise HTTPException(status_code=409, detail="No CVE benchmark running.")
+    _cve_bench_cancel.set()
+    _cve_benchmark["current_test"] = "Cancelling after current tier…"
+    return {"status": "cancelling"}
+
+
+@app.get("/admin/benchmark/cve/status")
+def get_cve_benchmark_status():
+    return _cve_benchmark
+
+
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -1074,9 +1605,13 @@ def chat_stream(body: ChatMessage):
             except Exception:
                 chunks = []
             if chunks:
-                count = len(chunks)
-                label = "sources" if count != 1 else "source"
-                yield f'data: {{"type":"status","message":"Reading {count} {label}..."}}\n\n'
+                count        = len(chunks)
+                source_names = list(dict.fromkeys(c["source"] for c in chunks))
+                src_display  = ", ".join(source_names[:2]) + ("…" if len(source_names) > 2 else "")
+                chunk_s      = "s" if count != 1 else ""
+                status_msg   = f"Found {count} chunk{chunk_s} · {src_display}"
+                yield f'data: {json.dumps({"type": "status", "message": status_msg})}\n\n'
+                yield f'data: {json.dumps({"type": "sources", "names": source_names})}\n\n'
                 system_content = (
                     system_base
                     + "\n\nUse the context below to help answer questions. "

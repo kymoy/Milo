@@ -80,7 +80,7 @@ export default function ThemedChat({ dark, light, greeting, loginPath, glows, la
   }
 
   const greetingText = typeof greeting === 'function' ? greeting(user?.username) : greeting
-  const { messages, input, setInput, loading, status, send, resetChat, sessionId, loadSession, estimate, sessionStats } = useMiloChat(greetingText, useLibrary)
+  const { messages, input, setInput, loading, status, send, resetChat, sessionId, loadSession, estimate, sessionStats, sources } = useMiloChat(greetingText, useLibrary)
 
   const bottomRef = useRef(null)
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages])
@@ -142,8 +142,24 @@ export default function ThemedChat({ dark, light, greeting, loginPath, glows, la
                     padding: '12px 16px',
                     borderRadius: bubbleRadius,
                   }}>
-                    {m.role === 'user' ? m.text : <MiloMarkdown>{m.text}</MiloMarkdown>}
+                    {m.role === 'user'
+                      ? m.text
+                      : m.skeleton
+                        ? <span style={{ ...loadingStyle }}>{m.statusText || loadingText}</span>
+                        : <MiloMarkdown>{m.text}</MiloMarkdown>
+                    }
                   </div>
+                  {m.role === 'bot' && m.streaming && sources?.length > 0 && (
+                    <div style={{ display: 'flex', gap: '5px', flexWrap: 'wrap', marginTop: '5px', maxWidth: '68%' }}>
+                      {sources.map(s => (
+                        <span key={s} style={{
+                          fontSize: '10px', padding: '2px 8px', borderRadius: '10px',
+                          background: `${c.accent}14`, border: `1px solid ${c.border}`,
+                          color: c.muted, fontFamily: 'monospace',
+                        }}>{s}</span>
+                      ))}
+                    </div>
+                  )}
                   {m.role === 'user' && messages[i + 1]?.metrics?.input_tokens != null && (
                     <span style={{ fontSize: '11px', fontFamily: 'monospace', color: c.muted, opacity: 0.7, marginTop: '4px' }}>
                       {messages[i + 1].metrics.input_tokens.toLocaleString()} tokens in

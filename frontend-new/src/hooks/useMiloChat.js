@@ -5,12 +5,27 @@ import { streamMessage } from '../utils/chat'
 const BACKEND = 'http://localhost:8000'
 const MAX_LENGTH = 2000
 
+function statsFromMessages(msgs) {
+  let messageCount = 0, totalInputTokens = 0, totalOutputTokens = 0, totalCost = 0
+  for (const m of msgs) {
+    if (m.role === 'bot' && m.metrics) {
+      messageCount++
+      totalInputTokens += m.metrics.input_tokens ?? 0
+      totalOutputTokens += m.metrics.output_tokens ?? 0
+      totalCost += m.metrics.cost ?? 0
+    }
+  }
+  return { messageCount, totalInputTokens, totalOutputTokens, totalCost }
+}
+
 async function persistSession(sessionId, messages) {
   // Skip the greeting (index 0) — it's synthetic per-theme text
-  const toSave = messages.slice(1).map(({ role, text }) => ({ role, text }))
+  const toSave = messages.slice(1).map(({ role, text, metrics }) => ({
+    role, text, ...(metrics ? { metrics } : {}),
+  }))
   if (toSave.length === 0) return
 
-  // Persist response times and model names locally (backend only stores role+text)
+  // Keep localStorage for response_ms/model (backward compat with old sessions)
   const timings = messages.slice(1).map(m => m.metrics?.response_ms ?? null)
   const modelNames = messages.slice(1).map(m => m.metrics?.model ?? null)
   localStorage.setItem(`milo_timings_${sessionId}`, JSON.stringify(timings))
@@ -33,19 +48,25 @@ export function useMiloChat(greeting, useLibrary = true) {
     if (!pending) return [{ role: 'bot', text: greeting }]
     const timings = JSON.parse(localStorage.getItem(`milo_timings_${pending.id}`) || '[]')
     const modelNames = JSON.parse(localStorage.getItem(`milo_models_${pending.id}`) || '[]')
-    const withTimings = pending.messages.map((m, i) => {
+    const withMetrics = pending.messages.map((m, i) => {
+      if (m.metrics) return m  // already persisted in backend
       const ms = timings[i]
       const model = modelNames[i]
       if (ms != null || model != null) return { ...m, metrics: { ...(ms != null ? { response_ms: ms } : {}), ...(model != null ? { model } : {}) } }
       return m
     })
-    return [{ role: 'bot', text: greeting }, ...withTimings]
+    return [{ role: 'bot', text: greeting }, ...withMetrics]
   })
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [status, setStatus] = useState(null)
   const [estimate, setEstimate] = useState(null)
-  const [sessionStats, setSessionStats] = useState({ messageCount: 0, totalInputTokens: 0, totalOutputTokens: 0, totalCost: 0 })
+  const [sources, setSources]   = useState([])
+  const [sessionStats, setSessionStats] = useState(() => {
+    const pending = state?.pendingSession
+    if (!pending) return { messageCount: 0, totalInputTokens: 0, totalOutputTokens: 0, totalCost: 0 }
+    return statsFromMessages(pending.messages)
+  })
 
   const messagesRef = useRef(messages)
   const estimateTimerRef = useRef(null)
@@ -107,16 +128,25 @@ export function useMiloChat(greeting, useLibrary = true) {
     ]
 
     const withUser = [...messages, { role: 'user', text }]
-    setMessages(withUser)
+    setMessages([...withUser, { role: 'bot', text: '', skeleton: true, statusText: null }])
     setInput('')
     setLoading(true)
     setStatus(null)
     setEstimate(null)
+    setSources([])
 
     let accumulated = ''
 
     await streamMessage(text, useLibrary, history, {
-      onStatus: (msg) => setStatus(msg),
+      onStatus: (msg) => {
+        setStatus(msg)
+        setMessages(prev => {
+          const last = prev[prev.length - 1]
+          if (last?.skeleton) return [...prev.slice(0, -1), { ...last, statusText: msg }]
+          return prev
+        })
+      },
+      onSources: (names) => setSources(names),
       onToken: (token) => {
         accumulated += token
         setStatus(null)
@@ -142,6 +172,7 @@ export function useMiloChat(greeting, useLibrary = true) {
         setMessages(final)
         setLoading(false)
         setStatus(null)
+        setSources([])
       },
     })
   }
@@ -155,16 +186,17 @@ export function useMiloChat(greeting, useLibrary = true) {
   function loadSession(id, savedMessages) {
     const timings = JSON.parse(localStorage.getItem(`milo_timings_${id}`) || '[]')
     const modelNames = JSON.parse(localStorage.getItem(`milo_models_${id}`) || '[]')
-    const withTimings = savedMessages.map((m, i) => {
+    const withMetrics = savedMessages.map((m, i) => {
+      if (m.metrics) return m  // already persisted in backend
       const ms = timings[i]
       const model = modelNames[i]
       if (ms != null || model != null) return { ...m, metrics: { ...(ms != null ? { response_ms: ms } : {}), ...(model != null ? { model } : {}) } }
       return m
     })
     setSessionId(id)
-    setMessages([{ role: 'bot', text: greeting }, ...withTimings])
-    setSessionStats({ messageCount: 0, totalInputTokens: 0, totalOutputTokens: 0, totalCost: 0 })
+    setMessages([{ role: 'bot', text: greeting }, ...withMetrics])
+    setSessionStats(statsFromMessages(withMetrics))
   }
 
-  return { messages, input, setInput, loading, status, send, resetChat, sessionId, loadSession, estimate, sessionStats }
+  return { messages, input, setInput, loading, status, send, resetChat, sessionId, loadSession, estimate, sessionStats, sources }
 }
